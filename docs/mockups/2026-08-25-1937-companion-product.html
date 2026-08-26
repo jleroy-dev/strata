@@ -1,0 +1,2653 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata mockup: the companion</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #040508;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .terminal {
+        flex: 1;
+        padding: 18px 22px;
+        color: #9aa5bd;
+        overflow: hidden;
+        white-space: pre-wrap;
+        font-size: 12.5px;
+        opacity: 0.85;
+      }
+      .terminal .k {
+        color: #dfe6f5;
+      }
+      .terminal .t {
+        color: #7fb3ff;
+      }
+      .terminal .ok {
+        color: #b8e6a8;
+      }
+      .panel {
+        width: 900px; /* exploration width; the product panel is 440px */
+        position: relative;
+        border-left: 1px solid #1c2130;
+        background: #0b0d12;
+      }
+      canvas.gl {
+        display: block;
+      }
+      .stale {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: rgba(45, 47, 56, 0.35);
+        backdrop-filter: saturate(0.55);
+        display: none;
+      }
+      .row.empty {
+        color: #8a94ab;
+        cursor: default;
+      }
+      .row.empty code {
+        color: #dfe6f5;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0 5px;
+        border-radius: 2px;
+      }
+      .row.warn {
+        border-color: rgba(242, 193, 78, 0.5);
+      }
+      .sim select {
+        background: transparent;
+        color: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        font: inherit;
+        font-size: 10.5px;
+      }
+      .vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.45) 100%);
+      }
+      .hud {
+        position: absolute;
+        left: 12px;
+        top: 10px;
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.5);
+        pointer-events: none;
+        text-shadow: 0 1px 2px #000;
+      }
+      .hud b {
+        color: #fff;
+        font-weight: 600;
+      }
+      .roster {
+        position: absolute;
+        right: 10px;
+        top: 32px;
+        max-width: calc(100% - 20px);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 8px auto auto auto;
+        gap: 8px;
+        align-items: baseline;
+        padding: 4px 9px;
+        background: rgba(6, 8, 12, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 11.5px;
+        backdrop-filter: blur(6px);
+      }
+      .row:hover {
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+      .row .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        box-shadow: 0 0 8px currentColor;
+        background: currentColor;
+      }
+      .row .verb {
+        color: #b5bed2;
+      }
+      .row .where {
+        color: #7c879f;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 220px;
+      }
+      .row.done {
+        opacity: 0.45;
+      }
+      .row .path {
+        grid-column: 1 / -1;
+        color: #8a94ab;
+        font-size: 10.5px;
+        display: none;
+      }
+      .row:hover .path {
+        display: block;
+      }
+      .label {
+        position: absolute;
+        pointer-events: none;
+        font-size: 11px;
+        color: #fff;
+        text-shadow:
+          0 0 4px #000,
+          0 1px 2px #000;
+        transform: translate(8px, -14px);
+        display: none;
+      }
+      .caption {
+        position: absolute;
+        left: 12px;
+        bottom: 66px;
+        background: rgba(6, 8, 12, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 7px 10px;
+        border-radius: 3px;
+        font-size: 11px;
+        display: none;
+        max-width: 300px;
+        backdrop-filter: blur(6px);
+      }
+      .caption a {
+        color: #fff;
+      }
+      .caption .m {
+        color: #9aa5bd;
+      }
+      .timeline {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 58px;
+        background: linear-gradient(transparent, rgba(4, 5, 8, 0.9) 45%);
+      }
+      .tlabel {
+        position: absolute;
+        bottom: 40px;
+        left: 12px;
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.5);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        pointer-events: none;
+      }
+      .tlabel b {
+        color: #fff;
+        font-weight: 500;
+      }
+      canvas.tl {
+        position: absolute;
+        bottom: 6px;
+        left: 0;
+        cursor: ew-resize;
+      }
+      .panel.narrow .sim {
+        display: none;
+      }
+      .sim {
+        position: absolute;
+        left: 12px;
+        top: auto;
+        bottom: 66px;
+        font-size: 10.5px;
+        color: rgba(255, 255, 255, 0.5);
+        display: flex;
+        gap: 12px;
+        text-shadow: 0 1px 2px #000;
+      }
+      .sim label,
+      .sim a {
+        cursor: pointer;
+        color: inherit;
+      }
+      .sim a.on {
+        color: #fff;
+      }
+      .sim input {
+        vertical-align: -1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="terminal" id="term"></div>
+    <div class="panel" id="panel">
+      <div class="vignette"></div>
+      <div class="stale" id="stale"></div>
+      <div class="hud">
+        camera <b id="mode">Overview</b> <span id="hint">· C cycles · Home returns</span>
+      </div>
+      <div class="sim">
+        <label><input type="checkbox" id="third" /> third agent</label
+        ><label><input type="checkbox" id="churn" checked /> churn</label
+        ><label><input type="checkbox" id="imports" /> imports on select</label
+        ><select id="state">
+          <option value="">live</option>
+          <option value="quiet">quiet</option>
+          <option value="deaf">deaf</option>
+          <option value="disconnected">disconnected</option>
+          <option value="cold">cold</option></select
+        ><a id="sim-rename" href="#">rename</a><a id="sim-move" href="#">move file</a
+        ><a id="sim-folder" href="#">move folder</a>
+      </div>
+      <div class="roster" id="roster"></div>
+      <div class="label" id="label"></div>
+      <div class="caption" id="caption"></div>
+      <div class="timeline">
+        <div class="tlabel" id="tlabel">last hour</div>
+        <canvas class="tl" id="tl" width="900" height="30"></canvas>
+      </div>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      // ---------- theme ----------
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const BANDS = { apps: 28, libs: 212, docs: 95, plumbing: null };
+      const family = (name) => {
+        const top = name.split('/')[0];
+        return top === 'apps'
+          ? 'apps'
+          : top === 'libs'
+            ? 'libs'
+            : top === 'docs' || top === 'kanban'
+              ? 'docs'
+              : top === 'packages'
+                ? 'libs'
+                : 'plumbing';
+      };
+      const variants = (name) => {
+        const f = family(name),
+          b = BANDS[f],
+          out = [];
+        [-14, 0, 14].forEach((off, i) =>
+          [0.46, 0.56].forEach((l, j) =>
+            out.push(
+              b === null
+                ? { hue: 220, s: 0.04, l: 0.42 + 0.06 * j + 0.02 * i, key: `${f}${i}${j}` }
+                : { hue: b + off, s: 0.3, l, key: `${f}${i}${j}` },
+            ),
+          ),
+        );
+        return out;
+      };
+      const THEMES = {
+        dusk: {
+          bg: 0x2d2f38,
+          fog: 0.0035,
+          haze: 0x3a3c46,
+          exposure: 0.85,
+          shadows: true,
+          ground: hsl(228, 0.08, 0.24),
+          plate: (a) => hsl(a.hue, a.s * 0.6, 0.3),
+          platform: (a) => hsl(a.hue, a.s * 0.75, 0.36),
+          tower: (a) => hsl(a.hue, a.s, a.l),
+          cap: (a) => hsl(a.hue, Math.min(1, a.s * 1.5), a.l + 0.08),
+          grid: 0x3a3d48,
+          lights: (sc) => {
+            sc.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+            const k = new THREE.DirectionalLight(0xffd9b0, 1.7);
+            T.key = k;
+            k.position.set(-0.6 * R, 0.8 * R, 0.4 * R);
+            k.castShadow = true;
+            k.shadow.mapSize.set(2048, 2048);
+            k.shadow.radius = 5;
+            k.shadow.bias = -0.0004;
+            const c = k.shadow.camera;
+            c.left = c.bottom = -R;
+            c.right = c.top = R;
+            c.far = 4 * R;
+            sc.add(k);
+            const r = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+            r.position.set(24, 14, -20);
+            sc.add(r);
+          },
+          bloom: [0.5, 0.3, 1.0],
+          agents: [60, 330, 175],
+        },
+      };
+      const T = THEMES.dusk;
+      const agents = [];
+      let R = 34;
+
+      // ---------- data: a dumped listing, the live server, or the fake repo ----------
+      const params = new URLSearchParams(location.search);
+      if (params.get('w')) document.getElementById('panel').style.width = params.get('w') + 'px';
+      if (document.getElementById('panel').clientWidth < 520)
+        document.getElementById('panel').classList.add('narrow');
+      const PROJECT_MARKERS = ['project.json', 'package.json', 'pyproject.toml'];
+      function placeFiles(files) {
+        const projectDirs = new Set();
+        files.forEach(([id]) => {
+          const s = id.lastIndexOf('/');
+          const n = s === -1 ? id : id.slice(s + 1);
+          if (PROJECT_MARKERS.includes(n)) projectDirs.add(s === -1 ? '' : id.slice(0, s));
+        });
+        const countryOf = (id) => {
+          let dir = id;
+          for (;;) {
+            const s = dir.lastIndexOf('/');
+            if (s === -1) break;
+            dir = dir.slice(0, s);
+            if (projectDirs.has(dir)) return dir;
+          }
+          const t = id.indexOf('/');
+          return t === -1 ? '' : id.slice(0, t);
+        };
+        return files.map(([id, size]) => {
+          const country = countryOf(id);
+          const s = id.lastIndexOf('/');
+          const folder = s === -1 ? '' : id.slice(0, s);
+          const district =
+            country === '' ? folder : folder.slice(country.length).replace(/^\//, '');
+          return { id, country, district, size };
+        });
+      }
+      async function loadRepo() {
+        if (params.get('repo')) {
+          await new Promise((res) => {
+            const el = document.createElement('script');
+            el.src = `data/${params.get('repo')}.local.js`;
+            el.onload = res;
+            el.onerror = res;
+            document.head.append(el);
+          });
+          if (window.STRATA_REPO) return placeFiles(window.STRATA_REPO.files);
+        }
+        if (params.get('ws')) {
+          const snap = await new Promise((res) => {
+            const ws = new WebSocket(`ws://${location.hostname || 'localhost'}:4747`);
+            const t = setTimeout(() => res(null), 3000);
+            ws.onmessage = (m) => {
+              clearTimeout(t);
+              res(JSON.parse(m.data));
+              ws.close();
+            };
+            ws.onerror = () => {
+              clearTimeout(t);
+              res(null);
+            };
+          });
+          if (snap?.kind === 'snapshot') return snap.blocks;
+        }
+        return null;
+      }
+      const loaded = await loadRepo();
+
+      // ---------- a repo that looks real ----------
+      let seed = 11;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      const pick = (a) => a[Math.floor(rnd() * a.length)];
+      const repo = [
+        [
+          'packages/core',
+          {
+            src: [
+              'index.ts',
+              'events.ts',
+              'hierarchy.ts',
+              'hierarchy.spec.ts',
+              'placeBlocks.ts',
+              'placeBlocks.spec.ts',
+              'roads.ts',
+              'roads.spec.ts',
+              'types.ts',
+            ],
+            'src/layout': ['treemap.ts', 'treemap.spec.ts', 'grid.ts', 'plates.ts', 'fixtures.ts'],
+            'src/time': ['coalesce.ts', 'coalesce.spec.ts', 'clock.ts'],
+          },
+        ],
+        [
+          'packages/server',
+          {
+            src: ['index.ts', 'socket.ts', 'snapshot.ts', 'config.ts', 'log.ts'],
+            'src/feeds': ['git.ts', 'watcher.ts', 'ignore.ts', 'rename.ts', 'imports.ts'],
+            'src/hooks': ['receiver.ts', 'install.ts', 'map.ts', 'session.ts'],
+            'src/store': ['ring.ts', 'range.ts'],
+          },
+        ],
+        [
+          'packages/web',
+          {
+            src: ['main.ts', 'state.ts', 'stream.ts', 'replay.ts'],
+            'src/scene': [
+              'terrain.ts',
+              'towers.ts',
+              'roads.ts',
+              'plates.ts',
+              'materials.ts',
+              'bloom.ts',
+              'scars.ts',
+            ],
+            'src/weather': ['beacon.ts', 'heat.ts', 'trace.ts', 'contest.ts', 'hues.ts'],
+            'src/camera': ['modes.ts', 'overview.ts', 'follow.ts', 'free.ts', 'keys.ts'],
+            'src/hud': ['roster.ts', 'caption.ts', 'timeline.ts', 'mode.ts', 'label.ts'],
+          },
+        ],
+        [
+          'packages/vscode',
+          {
+            src: ['extension.ts', 'panel.ts', 'bridge.ts', 'csp.ts', 'server.ts'],
+            media: ['icon.svg'],
+          },
+        ],
+        [
+          'docs',
+          {
+            '.': ['DESIGN.md', 'ENGINEERING_NOTES.md'],
+            mockups: ['companion-overview.html', 'companion-product.html', 'palette-board.html'],
+          },
+        ],
+        ['tools', { scripts: ['gate.sh', 'release.ts', 'fixture-repo.ts'], ci: ['gate.yml'] }],
+      ];
+      const countries = [],
+        blocks = [],
+        imports = [];
+      if (loaded) {
+        const byCountry = new Map();
+        loaded.forEach((f) => {
+          if (!byCountry.has(f.country)) {
+            const c = {
+              name: f.country || '(root)',
+              slot: byCountry.size,
+              districts: [],
+              byDistrict: new Map(),
+            };
+            byCountry.set(f.country, c);
+            countries.push(c);
+          }
+          const c = byCountry.get(f.country);
+          if (!c.byDistrict.has(f.district)) {
+            const d = {
+              name: f.district ? `${c.name}/${f.district}` : c.name,
+              rel: f.district || '.',
+              country: c,
+              blocks: [],
+            };
+            c.byDistrict.set(f.district, d);
+            c.districts.push(d);
+          }
+          const d = c.byDistrict.get(f.district);
+          const b = { id: f.id, district: d, country: c, size: f.size, touches: [], alive: true };
+          d.blocks.push(b);
+          blocks.push(b);
+        });
+      }
+      if (!loaded)
+        repo.forEach(([name, dists], slot) => {
+          const c = { name, slot, districts: [] };
+          countries.push(c);
+          Object.entries(dists).forEach(([d, files]) => {
+            const dist = {
+              name: d === '.' ? name : `${name}/${d}`,
+              rel: d,
+              country: c,
+              blocks: [],
+            };
+            c.districts.push(dist);
+            files.forEach((f) => {
+              const b = {
+                id: `${dist.name}/${f}`,
+                district: dist,
+                country: c,
+                size: Math.floor(300 + rnd() * rnd() * 14000),
+                touches: [],
+                alive: true,
+              };
+              dist.blocks.push(b);
+              blocks.push(b);
+            });
+          });
+        });
+      blocks.forEach((b) => {
+        if (rnd() < 0.7) {
+          const t = pick(blocks);
+          if (t !== b && t.id.endsWith('.ts')) imports.push([b, t]);
+        }
+      });
+
+      // ---------- layout on an integer lattice: 1-cell streets between districts, 3-cell avenues between countries ----------
+      const U = 1.15;
+      const BINARY =
+        /\.(png|jpe?g|gif|webp|avif|svg|ico|bmp|tiff?|mp3|wav|ogg|flac|m4a|mp4|webm|mov|avi|woff2?|ttf|otf|eot|zip|gz|tgz|bz2|7z|rar|jar|pdf|bin|exe|dll|so|dylib|wasm|psd|ai|sketch|fig|blend|glb|gltf|fbx|obj)$/i;
+      let extent = { totalW: 0, totalH: 0 };
+      function packDistrict(d) {
+        const n = d.blocks.length;
+        const need = Math.max(2, Math.ceil(n * 1.2) + 1);
+        if (!d.cap || n > d.cap) d.cap = need;
+        d.w = Math.max(1, Math.ceil(Math.sqrt(d.cap) * 1.3));
+        d.h = Math.max(1, Math.ceil(d.cap / d.w));
+        d.cap = d.w * d.h;
+        const slots = new Array(d.cap).fill(null);
+        d.blocks.forEach((b) => {
+          if (b.slot !== undefined && b.slot < d.cap && !slots[b.slot]) slots[b.slot] = b;
+        });
+        d.blocks.forEach((b) => {
+          if (slots[b.slot] !== b) {
+            b.slot = slots.indexOf(null);
+            slots[b.slot] = b;
+          }
+        });
+        d.slots = slots;
+      }
+      function packCountry(c) {
+        let W = Math.max(
+          Math.ceil(Math.sqrt(c.districts.reduce((s, d) => s + d.cap, 0)) * 1.1),
+          ...c.districts.map((d) => d.w),
+        );
+        const pack = () => {
+          let x = 0,
+            z = 0,
+            rowH = 0;
+          c.districts.forEach((d) => {
+            if (x + d.w > W && x > 0) {
+              x = 0;
+              z += rowH + 1;
+              rowH = 0;
+            }
+            d.x = x;
+            d.z = z;
+            rowH = Math.max(rowH, d.h);
+            x += d.w + 1;
+          });
+          c.w = Math.max(...c.districts.map((d) => d.x + d.w));
+          c.h = z + rowH;
+        };
+        pack();
+        while (c.h > W * 1.25 && W < 400) {
+          W = Math.ceil(W * 1.2);
+          pack();
+        }
+      }
+      function packMap() {
+        const rank = { apps: 0, libs: 1, docs: 2, plumbing: 3 };
+        const order = [...countries].sort(
+          (p, q) => rank[family(p.name)] - rank[family(q.name)] || q.h - p.h || q.w - p.w,
+        );
+        const target = Math.ceil(
+          Math.sqrt(order.reduce((s, c) => s + (c.w + 3) * (c.h + 3), 0)) * 1.05,
+        );
+        let cx = 1,
+          cz = 1,
+          rowH = 0;
+        order.forEach((c) => {
+          if (cx + c.w > target && cx > 1) {
+            cx = 1;
+            cz += rowH + 3;
+            rowH = 0;
+          }
+          c.ox = cx;
+          c.oz = cz;
+          rowH = Math.max(rowH, c.h);
+          cx += c.w + 3;
+        });
+        extent = {
+          totalW: Math.max(...countries.map((c) => c.ox + c.w)) + 1,
+          totalH: cz + rowH + 1,
+        };
+      }
+      const worldX = (gx) => (gx - extent.totalW / 2) * U,
+        worldZ = (gz) => (gz - extent.totalH / 2) * U;
+      function applyTargets(snap) {
+        blocks.forEach((b) => {
+          if (!b.alive) return;
+          const d = b.district,
+            c = b.country;
+          b.gx = c.ox + d.x + (b.slot % d.w);
+          b.gz = c.oz + d.z + Math.floor(b.slot / d.w);
+          b.tx = worldX(b.gx + 0.5);
+          b.tz = worldZ(b.gz + 0.5);
+          b.hgt = BINARY.test(b.id) ? 0.4 : Math.min(7, 0.4 + Math.log2(1 + b.size / 400) * 0.9);
+          if (snap || b.x === undefined) {
+            b.x = b.tx;
+            b.z = b.tz;
+          }
+        });
+        countries.forEach((c) => {
+          c.tx = worldX(c.ox + c.w / 2);
+          c.tz = worldZ(c.oz + c.h / 2);
+          if (snap || c.x === undefined) {
+            c.x = c.tx;
+            c.z = c.tz;
+          }
+          c.districts.forEach((d) => {
+            d.tx = worldX(c.ox + d.x + d.w / 2);
+            d.tz = worldZ(c.oz + d.z + d.h / 2);
+            if (snap || d.x0 === undefined) {
+              d.x0 = d.tx;
+              d.z0 = d.tz;
+            }
+          });
+        });
+      }
+      function assignAccents() {
+        const adj = countries.map(() => new Set());
+        countries.forEach((a, i) =>
+          countries.forEach((b, j) => {
+            if (j <= i) return;
+            const gx = Math.max(a.ox - (b.ox + b.w), b.ox - (a.ox + a.w)),
+              gz = Math.max(a.oz - (b.oz + b.h), b.oz - (a.oz + a.h));
+            if (gx <= 3 && gz <= 3 && !(gx > 0 && gz > 0)) {
+              adj[i].add(j);
+              adj[j].add(i);
+            }
+          }),
+        );
+        const order = countries.map((c, i) => i).sort((p, q) => adj[q].size - adj[p].size);
+        order.forEach((i) => {
+          const c = countries[i];
+          if (c.accent) return;
+          const used = new Map();
+          adj[i].forEach((j) => {
+            const k = countries[j].accent?.key;
+            if (k) used.set(k, (used.get(k) ?? 0) + 1);
+          });
+          let best = null,
+            bestN = Infinity;
+          variants(c.name).forEach((v) => {
+            const n = used.get(v.key) ?? 0;
+            if (n < bestN) {
+              bestN = n;
+              best = v;
+            }
+          });
+          c.accent = best;
+        });
+      }
+      function layout() {
+        countries.forEach((c) => {
+          c.districts.forEach(packDistrict);
+          packCountry(c);
+        });
+        packMap();
+        assignAccents();
+        applyTargets(true);
+      }
+      layout();
+      layout();
+      R = Math.max(extent.totalW, extent.totalH) * U * 0.6;
+
+      // ---------- shortcuts and rounded corners, never through a tower ----------
+      function clear(a, b, occ) {
+        const n = Math.ceil(a.distanceTo(b) / 0.2) + 1;
+        for (let i = 0; i <= n; i++) {
+          const px = a.x + ((b.x - a.x) * i) / n,
+            pz = a.z + ((b.z - a.z) * i) / n;
+          const gx = Math.floor(px / U + extent.totalW / 2),
+            gz = Math.floor(pz / U + extent.totalH / 2);
+          for (let dx = -1; dx <= 1; dx++)
+            for (let dz = -1; dz <= 1; dz++) {
+              if (!occ.has(`${gx + dx},${gz + dz}`)) continue;
+              const cx = worldX(gx + dx + 0.5),
+                cz = worldZ(gz + dz + 0.5);
+              if (Math.abs(px - cx) < 0.52 && Math.abs(pz - cz) < 0.52) return false;
+            }
+        }
+        return true;
+      }
+      function smooth(pts, occ) {
+        const pulled = [pts[0]];
+        for (let i = 0; i < pts.length - 1;) {
+          let j = pts.length - 1;
+          while (j > i + 1 && !clear(pts[i], pts[j], occ)) j--;
+          pulled.push(pts[j]);
+          i = j;
+        }
+        const out = [pulled[0]];
+        for (let i = 1; i < pulled.length - 1; i++) {
+          const p = pulled[i - 1],
+            c = pulled[i],
+            n = pulled[i + 1];
+          const r = Math.min(0.6, p.distanceTo(c) / 2, c.distanceTo(n) / 2);
+          const a = c.clone().lerp(p, r / p.distanceTo(c)),
+            b = c.clone().lerp(n, r / c.distanceTo(n));
+          const bend = [];
+          for (let k = 1; k < 6; k++) {
+            const t = k / 6;
+            bend.push(
+              a
+                .clone()
+                .multiplyScalar((1 - t) * (1 - t))
+                .add(c.clone().multiplyScalar(2 * (1 - t) * t))
+                .add(b.clone().multiplyScalar(t * t)),
+            );
+          }
+          if (bend.every((q, k) => clear(k ? bend[k - 1] : a, q, occ))) out.push(a, ...bend, b);
+          else out.push(c);
+        }
+        out.push(pulled[pulled.length - 1]);
+        return out;
+      }
+
+      // ---------- streets: A* on lattice corners ----------
+      function route(from, to) {
+        const occ = new Set();
+        blocks.forEach((b) => {
+          if (b.alive) occ.add(`${b.gx},${b.gz}`);
+        });
+        const W = extent.totalW + 1,
+          H = extent.totalH + 1;
+        const cost = (x1, z1, x2, z2) => {
+          let a, b;
+          if (x1 === x2) {
+            const z = Math.min(z1, z2);
+            a = occ.has(`${x1 - 1},${z}`);
+            b = occ.has(`${x1},${z}`);
+          } else {
+            const x = Math.min(x1, x2);
+            a = occ.has(`${x},${z1 - 1}`);
+            b = occ.has(`${x},${z1}`);
+          }
+          return a && b ? 4 : a || b ? 1.5 : 1;
+        };
+        const start = [from.gx, from.gz],
+          goal = [to.gx, to.gz];
+        const key = (x, z) => x + z * W;
+        const open = [[0, 0, start[0], start[1]]],
+          came = new Map(),
+          g = new Map([[key(...start), 0]]);
+        const push = (n) => {
+          open.push(n);
+          let i = open.length - 1;
+          while (i > 0) {
+            const j = (i - 1) >> 1;
+            if (open[j][0] <= open[i][0]) break;
+            [open[i], open[j]] = [open[j], open[i]];
+            i = j;
+          }
+        };
+        const pop = () => {
+          const top = open[0],
+            last = open.pop();
+          if (open.length) {
+            open[0] = last;
+            let i = 0;
+            for (;;) {
+              const l = 2 * i + 1,
+                r = l + 1;
+              let m = i;
+              if (l < open.length && open[l][0] < open[m][0]) m = l;
+              if (r < open.length && open[r][0] < open[m][0]) m = r;
+              if (m === i) break;
+              [open[i], open[m]] = [open[m], open[i]];
+              i = m;
+            }
+          }
+          return top;
+        };
+        const h = (x, z) => Math.abs(x - goal[0]) + Math.abs(z - goal[1]);
+        while (open.length) {
+          const [, gc, x, z] = pop();
+          if (x === goal[0] && z === goal[1]) break;
+          for (const [dx, dz] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ]) {
+            const nx = x + dx,
+              nz = z + dz;
+            if (nx < 0 || nz < 0 || nx > W - 1 || nz > H - 1) continue;
+            const ng = gc + cost(x, z, nx, nz);
+            if (ng < (g.get(key(nx, nz)) ?? 1e9)) {
+              g.set(key(nx, nz), ng);
+              came.set(key(nx, nz), [x, z]);
+              push([ng + h(nx, nz), ng, nx, nz]);
+            }
+          }
+        }
+        const path = [];
+        let cur = goal;
+        while (cur) {
+          path.push(new THREE.Vector3(worldX(cur[0]), 0.3, worldZ(cur[1])));
+          cur = came.get(key(...cur));
+        }
+        path.reverse();
+        const ground = smooth(path, occ);
+        ground.unshift(new THREE.Vector3(from.x, from.hgt + 0.3, from.z));
+        ground.push(new THREE.Vector3(to.tx ?? to.x, to.hgt + 0.3, to.tz ?? to.z));
+        return ground;
+      }
+
+      // ---------- scene ----------
+      const panel = document.getElementById('panel');
+      const W = () => panel.clientWidth,
+        H = () => panel.clientHeight;
+      const renderer = new THREE.WebGLRenderer({ antialias: false });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(W(), H());
+      renderer.domElement.className = 'gl';
+      panel.prepend(renderer.domElement);
+      renderer.toneMapping = THREE.AgXToneMapping;
+      renderer.toneMappingExposure = T.exposure;
+      renderer.shadowMap.enabled = T.shadows;
+      renderer.shadowMap.type = THREE.VSMShadowMap;
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(T.bg);
+      if (T.fog) scene.fog = new THREE.Fog(T.haze ?? T.bg, R * 1.8, R * 6);
+      const camera = new THREE.PerspectiveCamera(30, W() / H(), 0.1, R * 16);
+      T.lights(scene);
+      const mat = (color, extra = {}) =>
+        new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05, ...extra });
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(R * 12, R * 12), mat(T.ground));
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -0.3;
+      ground.receiveShadow = true;
+      scene.add(ground);
+      const grid = new THREE.GridHelper(R * 12, Math.round((R * 12) / U), T.grid, T.grid);
+      grid.position.y = -0.29;
+      grid.material.transparent = true;
+      grid.material.opacity = 0.35;
+      scene.add(grid);
+      const edge = (geo, color, op) =>
+        new THREE.LineSegments(
+          new THREE.EdgesGeometry(geo),
+          new THREE.LineBasicMaterial({ color, transparent: true, opacity: op }),
+        );
+      function plateGeometry(c) {
+        const w = (c.w + 1.6) * U,
+          d = (c.h + 1.6) * U;
+        c.plate.geometry.dispose();
+        c.plate.geometry = new THREE.BoxGeometry(w, 0.3, d);
+        c.rim.geometry.dispose();
+        c.rim.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.02, d));
+      }
+      function platformGeometry(d) {
+        d.plat.geometry.dispose();
+        d.plat.geometry = new THREE.BoxGeometry((d.w + 0.6) * U, 0.25, (d.h + 0.6) * U);
+      }
+      countries.forEach((c) => {
+        c.plate = new THREE.Mesh(new THREE.BoxGeometry(1, 0.3, 1), mat(T.plate(c.accent)));
+        c.plate.receiveShadow = c.plate.castShadow = true;
+        scene.add(c.plate);
+        c.rim = edge(new THREE.BoxGeometry(1, 0.02, 1), T.cap(c.accent), 0.35);
+        scene.add(c.rim);
+        plateGeometry(c);
+        c.plate.position.set(c.x, -0.15, c.z);
+        c.rim.position.set(c.x, 0.01, c.z);
+        c.districts.forEach((d) => {
+          d.plat = new THREE.Mesh(new THREE.BoxGeometry(1, 0.25, 1), mat(T.platform(c.accent)));
+          d.plat.receiveShadow = d.plat.castShadow = true;
+          scene.add(d.plat);
+          platformGeometry(d);
+          d.plat.position.set(d.x0, 0.12, d.z0);
+        });
+      });
+
+      // towers and caps
+      const towerGeo = new THREE.BoxGeometry(0.8, 1, 0.8);
+      towerGeo.translate(0, 0.5, 0);
+      const towers = new THREE.InstancedMesh(towerGeo, mat(0xffffff), blocks.length + 60);
+      towers.count = blocks.length;
+      towers.castShadow = towers.receiveShadow = true;
+      scene.add(towers);
+      const caps = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(0.84, 0.06, 0.84),
+        new THREE.MeshBasicMaterial({ toneMapped: false }),
+        blocks.length + 60,
+      );
+      caps.count = blocks.length;
+      scene.add(caps);
+      const m4 = new THREE.Matrix4();
+      blocks.forEach((b, i) => {
+        b.i = i;
+        b.scale = 1;
+      });
+      function placeTower(b) {
+        let x = b.x,
+          z = b.z,
+          y = 0.25,
+          sy = 1,
+          sxz = 1;
+        if (b.flight) {
+          const f = b.flight,
+            k = Math.min(1, (now - f.start) / f.dur);
+          const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+          x = f.x0 + (f.x1 - f.x0) * e;
+          z = f.z0 + (f.z1 - f.z0) * e;
+          const lift = k < 0.08 ? -0.06 * Math.sin((k / 0.08) * Math.PI) : 0;
+          y = 0.25 + f.apex * Math.sin(Math.PI * k) + lift;
+          const v = Math.cos(Math.PI * k);
+          sy =
+            1 + 0.25 * Math.abs(v) * (k > 0.08 ? 1 : 0) - (k > 0.9 ? 0.3 * (1 - (1 - k) / 0.1) : 0);
+          sxz = 1 / Math.sqrt(sy);
+          if (k >= 1) {
+            b.x = f.x1;
+            b.z = f.z1;
+            b.flight = null;
+            landed(b, f);
+            x = b.x;
+            z = b.z;
+            y = 0.25;
+            sy = sxz = 1;
+          }
+        }
+        const h = b.hgt * b.scale * sy + 0.001;
+        b.cx = x;
+        b.cz = z;
+        agents.forEach((a) => {
+          if (a.block === b && !a.path) a.pos.set(x, y - 0.25 + h + 0.3, z);
+        });
+        m4.makeScale(sxz, h, sxz);
+        m4.setPosition(x, y, z);
+        towers.setMatrixAt(b.i, m4);
+        m4.makeScale(sxz, 1, sxz);
+        m4.setPosition(x, y + h, z);
+        caps.setMatrixAt(b.i, m4);
+      }
+      blocks.forEach(placeTower);
+      towers.instanceMatrix.needsUpdate = caps.instanceMatrix.needsUpdate = true;
+      // imports: hidden at rest, shown for the selected block only
+      const importLines = new THREE.Group();
+      scene.add(importLines);
+      function showImports(b) {
+        importLines.clear();
+        if (!b || !document.getElementById('imports').checked) return;
+        imports
+          .filter(([a, t]) => a === b || t === b)
+          .forEach(([a, t]) =>
+            importLines.add(
+              new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(route(a, t)),
+                new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }),
+              ),
+            ),
+          );
+      }
+
+      // scars, pulses
+      const scars = new THREE.Group();
+      scene.add(scars);
+      // ---------- landing and edit effects: layered, timed on the contact frame ----------
+      // Contact frame: cap flash, core pop, light spike. Then a footprint ring on the cap with an
+      // ease-out expansion; an edit adds a second ring 80 ms later, a light column and sparks.
+      const fx = [];
+      // shock wave: a flat quad decal; the wave is drawn in the fragment, so the rim stays thin at any radius
+      const WAVE_R = 1.4;
+      const waveGeo = new THREE.PlaneGeometry(WAVE_R * 2, WAVE_R * 2);
+      waveGeo.rotateX(-Math.PI / 2);
+      const waveMat = (color, mult) =>
+        new THREE.ShaderMaterial({
+          uniforms: {
+            uColor: { value: color.clone().multiplyScalar(mult) },
+            uR1: { value: 0 },
+            uR2: { value: -1 },
+            uK: { value: 0 },
+          },
+          vertexShader:
+            'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+          fragmentShader: `uniform vec3 uColor; uniform float uR1; uniform float uR2; uniform float uK; varying vec2 vUv;
+            float wave(float d, float r) {
+              if (r < 0.0) return 0.0;
+              float front = 1.0 - smoothstep(r - 0.03, r, d);
+              float tail = smoothstep(r - 0.35, r, d);
+              return front * tail * pow(max(0.0, 1.0 - r), 1.8);
+            }
+            void main(){
+              float d = length(vUv - 0.5) * 2.0;
+              float a = (wave(d, uR1) + wave(d, uR2)) * (1.0 - uK);
+              gl_FragColor = vec4(uColor * a, 1.0);
+            }`,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          toneMapped: false,
+        });
+      const beamGeo = new THREE.CylinderGeometry(0.2, 0.15, 1, 16, 1, true);
+      beamGeo.translate(0, 0.5, 0);
+      // alpha falls from the base to nothing at the top; the bottom third carries most of the light
+      const beamMat = (color, mult) =>
+        new THREE.ShaderMaterial({
+          uniforms: {
+            uColor: { value: color.clone().multiplyScalar(mult) },
+            uOpacity: { value: 1 },
+          },
+          vertexShader:
+            'varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+          fragmentShader:
+            'uniform vec3 uColor; uniform float uOpacity; varying float vY; void main(){ float a = pow(1.0 - clamp(vY, 0.0, 1.0), 1.2); gl_FragColor = vec4(uColor * a * uOpacity, 1.0); }',
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+      const addMat = (color, mult, opacity = 1) =>
+        new THREE.MeshBasicMaterial({
+          color: color.clone().multiplyScalar(mult),
+          transparent: true,
+          opacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+      const easeOut = (k) => 1 - Math.pow(1 - k, 3);
+      function wave(b, color, edit) {
+        const m = new THREE.Mesh(waveGeo, waveMat(color, edit ? 5 : 3));
+        m.position.set(b.x, 0.25 + b.hgt * b.scale + 0.07, b.z);
+        scene.add(m);
+        const life = edit ? 12 : 10,
+          lag = 1.6; // second wave 80 ms behind the first
+        fx.push({
+          m,
+          born: now,
+          life,
+          tick: (k) => {
+            const t = k * life;
+            m.material.uniforms.uR1.value = easeOut(Math.min(1, t / 10));
+            m.material.uniforms.uR2.value =
+              edit && t > lag ? easeOut(Math.min(1, (t - lag) / 10)) : -1;
+            m.material.uniforms.uK.value = k * k;
+          },
+        });
+      }
+      function beam(b, color) {
+        const m = new THREE.Mesh(beamGeo, beamMat(color, 3));
+        m.position.set(b.x, 0.25 + b.hgt * b.scale + 0.03, b.z);
+        m.scale.set(1, 5, 1);
+        scene.add(m);
+        fx.push({
+          m,
+          born: now + 1.2,
+          life: 12,
+          tick: (k) => {
+            // brighter when the camera is far, so the stroke survives Overview
+            const far = THREE.MathUtils.clamp(camera.position.distanceTo(m.position) / 30, 1, 2.2);
+            m.scale.set(1 + 0.3 * k, 5 + easeOut(k), 1 + 0.3 * k);
+            m.material.uniforms.uOpacity.value = Math.pow(1 - k, 2) * far;
+          },
+        });
+      }
+      function sparks(b, color, n = 9) {
+        const pos = new Float32Array(n * 3),
+          vel = [];
+        for (let i = 0; i < n; i++) {
+          pos[i * 3] = b.x;
+          pos[i * 3 + 1] = 0.25 + b.hgt * b.scale;
+          pos[i * 3 + 2] = b.z;
+          const a = Math.random() * 6.28,
+            r = 0.4 + Math.random() * 1.2;
+          vel.push([Math.cos(a) * r, 2.5 + Math.random() * 2.5, Math.sin(a) * r]);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const m = new THREE.Points(
+          g,
+          new THREE.PointsMaterial({
+            color: color.clone().multiplyScalar(8),
+            size: 3,
+            sizeAttenuation: false,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          }),
+        );
+        scene.add(m);
+        fx.push({
+          m,
+          born: now,
+          life: 11,
+          tick: (k, dt) => {
+            for (let i = 0; i < n; i++) {
+              pos[i * 3] += vel[i][0] * dt;
+              pos[i * 3 + 1] += vel[i][1] * dt;
+              pos[i * 3 + 2] += vel[i][2] * dt;
+              vel[i][1] -= 9 * dt;
+            }
+            g.attributes.position.needsUpdate = true;
+            m.material.opacity = 1 - k * k;
+          },
+        });
+      }
+      function ripple(x, z, size, color) {
+        const m = new THREE.Mesh(
+          waveGeo,
+          waveMat(color ?? new THREE.Color(0.8, 0.85, 1), color ? 2 : 1.1),
+        );
+        m.material.uniforms.uR2.value = -1;
+        m.position.set(x, 0.29, z);
+        m.scale.setScalar(Math.max(1, size / 1.4));
+        scene.add(m);
+        fx.push({
+          m,
+          born: now,
+          life: 12,
+          tick: (k) => {
+            m.material.uniforms.uR1.value = easeOut(k);
+            m.material.uniforms.uK.value = k * k;
+          },
+        });
+      }
+      const ribbons = [];
+      const arcPoints = (x0, z0, x1, z1, apex, n = 40) => {
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const k = i / n;
+          pts.push(
+            new THREE.Vector3(
+              x0 + (x1 - x0) * k,
+              0.3 + apex * Math.sin(Math.PI * k),
+              z0 + (z1 - z0) * k,
+            ),
+          );
+        }
+        return pts;
+      };
+      const posOf = (mover) =>
+        mover.plat ? [mover.x0, mover.z0] : [mover.cx ?? mover.x, mover.cz ?? mover.z];
+      function ribbonFor(f, color, scar, lift, mover) {
+        const mesh = new THREE.Mesh(
+          new THREE.BufferGeometry(),
+          new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+          }),
+        );
+        scene.add(mesh);
+        ribbons.push({
+          mesh,
+          mover,
+          f,
+          color: color ?? new THREE.Color(0.8, 0.85, 1),
+          scar,
+          lift,
+        });
+      }
+      function updateRibbons() {
+        for (let i = ribbons.length - 1; i >= 0; i--) {
+          const r = ribbons[i];
+          const [hx, hz] = r.f.landedAt === undefined ? [r.f.x1, r.f.z1] : posOf(r.mover);
+          r.pts = arcPoints(r.f.x0, r.f.z0, hx, hz, r.f.apex);
+          const n = r.pts.length - 1;
+          const k = Math.min(1, (now - r.f.start) / r.f.dur);
+          const head = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+          let retract = r.f.landedAt === undefined ? 0 : Math.min(1, (now - r.f.landedAt) / 30);
+          if (r.dying !== undefined) retract = Math.min(1, Math.max(retract, (now - r.dying) / 12));
+          if (r.scar) r.scar.material.opacity = 0.9 * (1 - retract);
+          if (retract >= 1) {
+            scene.remove(r.mesh);
+            if (r.scar) scars.remove(r.scar);
+            ribbons.splice(i, 1);
+            continue;
+          }
+          const pos = [],
+            cols = [];
+          const from = Math.floor(retract * n),
+            to = Math.max(from, Math.floor(head * n));
+          for (let j = from; j < to; j++) {
+            const a = r.pts[j],
+              b = r.pts[j + 1];
+            const d = new THREE.Vector3().subVectors(b, a);
+            const w = 0.12 * (0.3 + 0.7 * (j / n));
+            const nrm = new THREE.Vector3(-d.z, 0, d.x).normalize().multiplyScalar(w);
+            const q = [
+              a.clone().add(nrm),
+              a.clone().sub(nrm),
+              b.clone().add(nrm),
+              b.clone().sub(nrm),
+            ];
+            const c = r.color
+              .clone()
+              .multiplyScalar((0.2 + 5 * Math.pow(j / n, 2)) * (1 - Math.pow(retract, 2)));
+            [0, 1, 2, 1, 3, 2].forEach((v) => {
+              pos.push(q[v].x, q[v].y + r.lift, q[v].z);
+              cols.push(c.r, c.g, c.b);
+            });
+          }
+          r.mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+          r.mesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+          r.mesh.visible = pos.length > 0;
+        }
+      }
+      const hoverArc = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.7,
+          toneMapped: false,
+        }),
+      );
+      hoverArc.visible = false;
+      scene.add(hoverArc);
+      function showHoverArc(b) {
+        const m = b?.movedFrom ?? b?.district.movedFrom;
+        if (!m || now - m.at > 1200) {
+          hoverArc.visible = false;
+          return;
+        }
+        const [hx, hz] = posOf(b.movedFrom ? b : b.district);
+        hoverArc.geometry.setFromPoints(arcPoints(m.x0, m.z0, hx, hz, m.apex));
+        hoverArc.material.color.copy(m.color ?? new THREE.Color(0xdfe6f5)).multiplyScalar(1.6);
+        hoverArc.visible = true;
+      }
+      function landed(b, f) {
+        f.landedAt = now;
+        if (f.silent) return;
+        ripple(b.x, b.z, 1.4, f.color);
+        b.movedFrom = { x0: f.x0, z0: f.z0, apex: f.apex, color: f.color, at: now };
+      }
+      function flightFor(x0, z0, x1, z1) {
+        const dist = Math.hypot(x1 - x0, z1 - z0);
+        return {
+          x0,
+          z0,
+          x1,
+          z1,
+          start: now,
+          dur: Math.min(16, 6 + dist * 0.25),
+          apex: Math.min(12, 1.5 + dist * 0.12),
+        };
+      }
+      function reroute(pred) {
+        agents.forEach((a) => {
+          if (!a.path || !a.pending || !pred(a.pending.b)) return;
+          const here = {
+            gx: Math.floor(a.pos.x / U + extent.totalW / 2),
+            gz: Math.floor(a.pos.z / U + extent.totalH / 2),
+            x: a.pos.x,
+            z: a.pos.z,
+            hgt: a.pos.y - 0.3,
+          };
+          a.path = route(here, a.pending.b);
+          a.seg = 0;
+          a.t = 0;
+          a.speed = 0;
+        });
+      }
+      function moveFile(b, dest, agent) {
+        const old = b.district,
+          fromAccent = b.country.accent,
+          x0 = b.x,
+          z0 = b.z;
+        old.slots[b.slot] = null;
+        old.blocks = old.blocks.filter((x) => x !== b);
+        const scar = scarAt(x0, z0, 0.9, 0.9, true);
+        assignSlot(dest, b);
+        b.flight = { ...flightFor(x0, z0, b.tx, b.tz), fromAccent, color: agent?.color ?? null };
+        ribbonFor(b.flight, b.flight.color, scar, b.hgt + 0.2, b);
+        reroute((t) => t === b);
+        b.id = `${dest.name}/${b.id.split('/').pop()}`;
+      }
+      function renameFile(b) {
+        const name = b.id.split('/').pop();
+        b.id = `${b.district.name}/${pick(['use-', 'get-', 'make-', 'read-', 'sync-'])}${name}`;
+        b.blink = now;
+      }
+      function moveFolder(d, destCountry, agent) {
+        const from = d.country,
+          x0 = d.x0,
+          z0 = d.z0;
+        from.districts = from.districts.filter((x) => x !== d);
+        const scar = scarAt(x0, z0, (d.w + 0.6) * U, (d.h + 0.6) * U, true);
+        d.country = destCountry;
+        destCountry.districts.push(d);
+        d.name = `${destCountry.name}/${d.rel}`;
+        d.blocks.forEach((b) => {
+          b.country = destCountry;
+          b.id = `${d.name}/${b.id.split('/').pop()}`;
+        });
+        d.plat.material = mat(T.platform(destCountry.accent));
+        settle(destCountry);
+        d.flight = flightFor(x0, z0, d.tx, d.tz);
+        d.flight.color = agent?.color ?? null;
+        ribbonFor(d.flight, d.flight.color, scar, 0.4, d);
+        reroute((t) => t.district === d);
+        d.blocks.forEach((b) => {
+          b.flight = {
+            ...flightFor(b.x, b.z, b.tx, b.tz),
+            fromAccent: from.accent,
+            color: agent?.color ?? null,
+            silent: true,
+            dur: d.flight.dur,
+            apex: d.flight.apex,
+          };
+        });
+      }
+      function touchFx(b, color, verb) {
+        wave(b, color, verb === 'editing');
+        if (verb === 'editing') {
+          beam(b, color);
+          sparks(b, color);
+        }
+      }
+      // the sustained edit state: aftershock waves, cap flicker, a spark drizzle; the worksite
+      function editState(a, dt) {
+        const b = a.block;
+        if (a.nextShock === undefined) a.nextShock = now + 6;
+        if (now >= a.nextShock) {
+          const m = new THREE.Mesh(waveGeo, waveMat(a.color, 1.6));
+          m.material.uniforms.uR2.value = -1;
+          m.position.set(b.x, 0.25 + b.hgt * b.scale + 0.075, b.z);
+          scene.add(m);
+          fx.push({
+            m,
+            born: now,
+            life: 14,
+            tick: (k) => {
+              m.material.uniforms.uR1.value = easeOut(k) * 0.62;
+              m.material.uniforms.uK.value = k * k;
+            },
+          });
+          a.nextShock = now + 24 + Math.random() * 12;
+        }
+        if (a.nextSpark === undefined) a.nextSpark = now + 16;
+        if (now >= a.nextSpark) {
+          sparks(b, a.color, 2 + Math.floor(Math.random() * 2));
+          a.nextSpark = now + 28 + Math.random() * 24;
+        }
+        a.flicker =
+          0.15 * Math.sin(now * 1.85) + 0.1 * Math.sin(now * 1.185) + 0.08 * Math.sin(now * 3.065);
+      }
+      function animateFx(dt) {
+        for (let i = fx.length - 1; i >= 0; i--) {
+          const f = fx[i];
+          if (now < f.born) {
+            f.m.visible = false;
+            continue;
+          }
+          f.m.visible = true;
+          const k = (now - f.born) / f.life;
+          if (k >= 1) {
+            scene.remove(f.m);
+            fx.splice(i, 1);
+            continue;
+          }
+          f.tick(k, dt);
+        }
+      }
+
+      // trails: ribbons laid on the street; brightness falls with age, so the head end is the bright end
+      const trailGeo = new THREE.BufferGeometry();
+      scene.add(
+        new THREE.Mesh(
+          trailGeo,
+          new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+          }),
+        ),
+      );
+      const segments = [];
+      const TRAIL = 45;
+      function rebuildTrails() {
+        const pos = [],
+          cols = [];
+        const w = 0.08;
+        for (let i = segments.length - 1; i >= 0; i--) {
+          const s = segments[i];
+          let k = 1 - (now - s.at) / TRAIL;
+          if (s.dying !== undefined) k = Math.min(k, 1 - (now - s.dying) / 12);
+          if (k <= 0) {
+            segments.splice(i, 1);
+            continue;
+          }
+          const d = new THREE.Vector3().subVectors(s.b, s.a);
+          const n = new THREE.Vector3(-d.z, 0, d.x).normalize().multiplyScalar(w);
+          const p = [
+            s.a.clone().add(n),
+            s.a.clone().sub(n),
+            s.b.clone().add(n),
+            s.b.clone().sub(n),
+          ];
+          p.forEach((v) => (v.y = 0.29));
+          const dimA = isolate && isolate !== s.agent ? 0.25 : 1;
+          const c = s.color.clone().multiplyScalar((0.2 + 10 * k * k * k) * dimA);
+          [0, 1, 2, 1, 3, 2].forEach((j) => {
+            pos.push(p[j].x, p[j].y, p[j].z);
+            cols.push(c.r, c.g, c.b);
+          });
+        }
+        trailGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        trailGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+      }
+
+      // post
+      const composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      const bloom = new UnrealBloomPass(
+        new THREE.Vector2(W(), H()),
+        T.bloom[0],
+        T.bloom[1],
+        T.bloom[2],
+      );
+      composer.addPass(bloom);
+      composer.addPass(new OutputPass());
+      composer.addPass(new SMAAPass());
+
+      // ---------- agents: a beacon at rest, a pulse in the fibre in transit ----------
+      const ids = ['claude 7f3a', 'claude 2c91', 'claude b80e'];
+      const haloTex = (() => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const g = c.getContext('2d');
+        const r = g.createRadialGradient(32, 32, 1, 32, 32, 30);
+        r.addColorStop(0, 'rgba(255,255,255,1)');
+        r.addColorStop(0.18, 'rgba(255,255,255,.9)');
+        r.addColorStop(0.45, 'rgba(255,255,255,.18)');
+        r.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = r;
+        g.fillRect(0, 0, 64, 64);
+        return new THREE.CanvasTexture(c);
+      })();
+      const arcTex = (() => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        g.strokeStyle = '#fff';
+        g.lineWidth = 4;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.arc(64, 64, 52, 0, Math.PI * 2 * 0.33);
+        g.stroke();
+        return new THREE.CanvasTexture(c);
+      })();
+      const ringTex = (() => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const g = c.getContext('2d');
+        g.strokeStyle = '#fff';
+        g.lineWidth = 3;
+        g.beginPath();
+        g.arc(32, 32, 28, 0, 7);
+        g.stroke();
+        return new THREE.CanvasTexture(c);
+      })();
+      let seeding = true;
+      let now = 0;
+      const SKY = Math.max(18, R * 0.5);
+      const CENTRE = {
+        gx: Math.round(extent.totalW / 2),
+        gz: Math.round(extent.totalH / 2),
+        x: 0,
+        z: 0,
+        hgt: 2.7,
+      };
+      function arrive(n) {
+        const hue = T.agents[n];
+        const color = hsl(hue, 1, 0.6);
+        const halo = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: haloTex,
+            color: color.clone().multiplyScalar(3),
+            sizeAttenuation: false,
+            depthTest: false,
+            transparent: true,
+            toneMapped: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        halo.scale.setScalar(0.06);
+        halo.renderOrder = 10;
+        scene.add(halo);
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(1, 12, 12),
+          new THREE.MeshBasicMaterial({
+            color: color.clone().multiplyScalar(18),
+            toneMapped: false,
+          }),
+        );
+        scene.add(core);
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, 1, 6),
+          new THREE.MeshBasicMaterial({
+            color: color.clone().multiplyScalar(2),
+            transparent: true,
+            opacity: 0.6,
+            toneMapped: false,
+          }),
+        );
+        scene.add(stem);
+        const spot = new THREE.Mesh(new THREE.CircleGeometry(0.55, 32), addMat(color, 1.2, 0.35));
+        // running: a third of a circle orbits the core; editing: a faint standing work light
+        const arc = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: arcTex,
+            color: color.clone().multiplyScalar(4),
+            sizeAttenuation: false,
+            depthTest: false,
+            transparent: true,
+            toneMapped: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        arc.scale.setScalar(0.028);
+        arc.renderOrder = 11;
+        arc.visible = false;
+        scene.add(arc);
+        const workLight = new THREE.Mesh(beamGeo, beamMat(color, 0.45));
+        workLight.scale.set(1, 4, 1);
+        workLight.visible = false;
+        scene.add(workLight);
+        // reading: a band sweeps the tower on a loop, faded near the base and the cap
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.05, 0.94), addMat(color, 2.2, 0));
+        const ghost = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1, 0.9), addMat(color, 0.35, 0));
+        scene.add(band, ghost);
+        spot.rotation.x = -Math.PI / 2;
+        scene.add(spot);
+        const light = new THREE.PointLight(color, 8, 6, 1.7);
+        scene.add(light);
+        const home = pick(blocks);
+        agents.push({
+          id: ids[n],
+          hue,
+          color,
+          halo,
+          core,
+          stem,
+          spot,
+          arc,
+          workLight,
+          lift: 0,
+          band,
+          ghost,
+          light,
+          verb: 'idle',
+          // a live session arrives from the sky over the map centre and hovers until its first event
+          phase: seeding ? 'live' : 'arriving',
+          phaseAt: now,
+          block: seeding ? home : null,
+          from: seeding ? undefined : CENTRE,
+          home,
+          alive: true,
+          lastTouch: -1e9,
+          landed: -1e9,
+          done: 0,
+          pos: seeding
+            ? new THREE.Vector3(home.x, home.hgt + 0.3, home.z)
+            : new THREE.Vector3(0, 3, 0),
+          path: null,
+          seg: 0,
+          t: 0,
+          pending: null,
+        });
+      }
+      arrive(0);
+      arrive(1);
+
+      // ---------- clock, log, terrain churn ----------
+      const SPEED = 20;
+      const log = [];
+      const termLines = [];
+      function land(a, b, verb) {
+        b.touches.push({ at: now, agent: a });
+        a.lastTouch = a.landed = now;
+        log.push({ at: now, agent: a, block: b, verb });
+        if (!seeding) touchFx(b, a.color, verb);
+      }
+      function go(a, b, verb) {
+        term(a, verb, b);
+        a.verb = verb;
+        a.block = b;
+        if (seeding) {
+          land(a, b, verb);
+          a.pos.set(b.x, b.hgt + 0.3, b.z);
+          return;
+        }
+        a.path = route(a.from ?? a.home, b);
+        a.seg = 0;
+        a.t = 0;
+        a.pending = { b, verb };
+      }
+      function term(a, verb, b) {
+        termLines.push(
+          `<span class="k">●</span> <span class="t">${verb === 'reading' ? 'Read' : verb === 'editing' ? 'Edit' : 'Bash'}</span>(${b ? b.id : 'npm run gate'})`,
+        );
+        if (verb === 'editing')
+          termLines.push(
+            `  <span class="ok">Updated ${b.id.split('/').pop()} with ${1 + Math.floor(Math.random() * 12)} additions and ${Math.floor(Math.random() * 6)} removals</span>`,
+          );
+        if (termLines.length > 60) termLines.splice(0, termLines.length - 60);
+      }
+      function scarAt(x, z, w = 0.9, d = 0.9, owned = false) {
+        const scar = new THREE.Mesh(
+          new THREE.PlaneGeometry(w, d),
+          new THREE.MeshBasicMaterial({ color: 0x1e2028, transparent: true, opacity: 0.9 }),
+        );
+        scar.rotation.x = -Math.PI / 2;
+        scar.position.set(x, 0.26, z);
+        scar.born = owned ? null : now;
+        scars.add(scar);
+        return scar;
+      }
+      function dissolveTrails(inside) {
+        segments.forEach((seg) => {
+          if (seg.dying === undefined && (inside(seg.a) || inside(seg.b))) seg.dying = now;
+        });
+        ribbons.forEach((r) => {
+          if (
+            r.dying === undefined &&
+            r.f.landedAt !== undefined &&
+            inside({ x: r.f.x0, z: r.f.z0 })
+          )
+            r.dying = now;
+        });
+        blocks.forEach((b) => {
+          if (b.movedFrom && inside({ x: b.movedFrom.x0, z: b.movedFrom.z0 })) b.movedFrom = null;
+        });
+        countries.forEach((c) =>
+          c.districts.forEach((d) => {
+            if (d.movedFrom && inside({ x: d.movedFrom.x0, z: d.movedFrom.z0 })) d.movedFrom = null;
+          }),
+        );
+      }
+      function settle(c) {
+        const hw = ((c.w + 1.6) * U) / 2,
+          hd = ((c.h + 1.6) * U) / 2,
+          cx = c.x,
+          cz = c.z;
+        c.districts.forEach(packDistrict);
+        const before = [c.w, c.h];
+        packCountry(c);
+        c.districts.forEach(platformGeometry);
+        const grew = c.w !== before[0] || c.h !== before[1];
+        if (grew) {
+          packMap();
+          plateGeometry(c);
+        }
+        applyTargets(false);
+        const moved = countries.filter(
+          (k) => Math.abs(k.x - k.tx) > 0.01 || Math.abs(k.z - k.tz) > 0.01,
+        );
+        if (moved.length) dissolveTrails(() => true);
+        else dissolveTrails((p) => Math.abs(p.x - cx) < hw && Math.abs(p.z - cz) < hd);
+      }
+      function assignSlot(d, b) {
+        const free = d.slots.indexOf(null);
+        d.blocks.push(b);
+        b.district = d;
+        b.country = d.country;
+        if (free >= 0) {
+          b.slot = free;
+          d.slots[free] = b;
+          applyTargets(false);
+        } else {
+          b.slot = undefined;
+          settle(d.country);
+        }
+      }
+      function addFile(a) {
+        const d = pick(blocks.filter((x) => x.alive)).district;
+        const b = {
+          id: `${d.name}/${pick(['helpers', 'format', 'parse', 'guard', 'index', 'select', 'merge'])}${Math.floor(Math.random() * 90)}.ts`,
+          size: 400 + Math.floor(Math.random() * 3000),
+          touches: [],
+          alive: true,
+          i: towers.count++,
+          scale: 0,
+        };
+        caps.count = towers.count;
+        blocks.push(b);
+        assignSlot(d, b);
+        b.x = b.tx;
+        b.z = b.tz;
+        go(a, b, 'editing');
+      }
+      function removeFile() {
+        const b = pick(
+          blocks.filter(
+            (x) => x.alive && !x.flight && (x.touches.length === 0 || Math.random() < 0.2),
+          ),
+        );
+        if (!b) return;
+        b.alive = false;
+        agents.forEach((a) => {
+          if (a.block === b) {
+            a.block = null;
+            if (a.verb !== 'running') a.verb = 'idle';
+          }
+        });
+        b.district.slots[b.slot] = null;
+        b.district.blocks = b.district.blocks.filter((x) => x !== b);
+        scarAt(b.x, b.z);
+      }
+      function step(dt) {
+        now += dt * SPEED;
+        agents.forEach((a) => {
+          if (!a.alive || a.path) return;
+          if (a.phase === 'arriving' && now - a.phaseAt > 14) a.phase = 'live';
+          if (a.phase !== 'live') return;
+          // 20 s without an event ends the state; the clock runs at 20x, so 400 sim seconds
+          if ((a.verb === 'reading' || a.verb === 'editing') && now - a.lastTouch > 400)
+            a.verb = 'idle';
+          if (Math.random() < dt * (seeding ? 0.9 : 0.25)) {
+            const r = Math.random();
+            if (r < 0.12) {
+              a.verb = 'running';
+              term(a, 'running');
+              return;
+            }
+            // Stop: the turn is over, the agent waits for the user
+            if (r < 0.2 && a.block) {
+              a.verb = 'waiting';
+              return;
+            }
+            if (r < 0.22) a.home = pick(blocks.filter((b) => b.alive));
+            if (!a.home.alive || !a.home.district.blocks.some((b) => b.alive))
+              a.home = pick(blocks.filter((b) => b.alive));
+            const pool = a.home.district.blocks.filter((b) => b.alive);
+            const other = agents.find((o) => o !== a && o.alive && o.block);
+            const b = other && Math.random() < 0.015 ? other.block : pick(pool);
+            if (!seeding && document.getElementById('churn').checked && Math.random() < 0.08)
+              addFile(a);
+            else go(a, b, Math.random() < 0.45 ? 'reading' : 'editing');
+          }
+        });
+        if (!seeding && document.getElementById('churn').checked && Math.random() < dt * 0.05)
+          removeFile();
+        const third = document.getElementById('third').checked;
+        if (third && agents.length < 3) arrive(2);
+        if (
+          !third &&
+          agents.length === 3 &&
+          agents[2].alive &&
+          agents[2].phase === 'live' &&
+          !agents[2].path
+        ) {
+          const a = agents[2];
+          a.phase = 'leaving';
+          a.phaseAt = now;
+          a.verb = 'done';
+        }
+        agents.forEach((a) => {
+          if (a.phase === 'leaving' && now - a.phaseAt > 16) {
+            a.alive = false;
+            a.phase = 'gone';
+            a.done = now;
+            [a.halo, a.core, a.stem, a.spot, a.arc, a.workLight, a.band, a.ghost, a.light].forEach(
+              (o) => (o.visible = false),
+            );
+          }
+        });
+      }
+      function travel(dt) {
+        agents.forEach((a) => {
+          if (!a.path) return;
+          if (!a.speed) {
+            let len = 0;
+            for (let i = 0; i < a.path.length - 1; i++) len += a.path[i].distanceTo(a.path[i + 1]);
+            a.speed = len / Math.min(0.8, 0.22 + len * 0.012);
+          }
+          let left = a.speed * dt;
+          while (left > 0 && a.seg < a.path.length - 1) {
+            const p = a.path[a.seg],
+              q = a.path[a.seg + 1],
+              len = p.distanceTo(q);
+            const remain = (1 - a.t) * len;
+            if (left >= remain) {
+              segments.push({ a: a.pos.clone(), b: q.clone(), at: now, color: a.color, agent: a });
+              a.pos.copy(q);
+              a.seg++;
+              a.t = 0;
+              left -= remain;
+            } else {
+              const np = p.clone().lerp(q, a.t + left / len);
+              segments.push({ a: a.pos.clone(), b: np.clone(), at: now, color: a.color, agent: a });
+              a.pos.copy(np);
+              a.t += left / len;
+              left = 0;
+            }
+          }
+          if (a.seg >= a.path.length - 1) {
+            const { b, verb } = a.pending;
+            a.path = null;
+            a.speed = 0;
+            a.from = b;
+            land(a, b, verb);
+          }
+        });
+      }
+
+      // ---------- camera modes ----------
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.maxPolarAngle = Math.PI / 2.1;
+      controls.minDistance = 4;
+      controls.maxDistance = R * 12;
+      let mode = 'Overview',
+        follow = null,
+        selected = null,
+        hover = null,
+        isolate = null,
+        scrub = null;
+      const ELEV = THREE.MathUtils.degToRad(38),
+        YAW = THREE.MathUtils.degToRad(15);
+      function fitDistance(w, d) {
+        const r = Math.hypot(w, d) / 2;
+        const vfov = (camera.fov * Math.PI) / 180,
+          hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
+        return (r / Math.sin(Math.min(vfov, hfov) / 2)) * 0.92;
+      }
+      const dir = () =>
+        new THREE.Vector3(
+          Math.cos(ELEV) * Math.sin(YAW),
+          Math.sin(ELEV),
+          Math.cos(ELEV) * Math.cos(YAW),
+        );
+      const overviewTarget = new THREE.Vector3(0, 0.5, 0),
+        overviewPos = new THREE.Vector3();
+      function fitBox(corners, target, margin = 0.9) {
+        const probe = camera.clone();
+        const aim = (t, d) => {
+          probe.position.copy(t).add(dir().multiplyScalar(d));
+          probe.lookAt(t);
+          probe.updateMatrixWorld();
+        };
+        const bounds = () => {
+          let minX = 1,
+            maxX = -1,
+            minY = 1,
+            maxY = -1;
+          corners.forEach((c) => {
+            const q = c.clone().project(probe);
+            minX = Math.min(minX, q.x);
+            maxX = Math.max(maxX, q.x);
+            minY = Math.min(minY, q.y);
+            maxY = Math.max(maxY, q.y);
+          });
+          return { minX, maxX, minY, maxY };
+        };
+        const forward = dir().negate();
+        const right = new THREE.Vector3()
+          .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+          .normalize();
+        const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+        let dist = R;
+        for (let pass = 0; pass < 3; pass++) {
+          aim(target, dist);
+          const b = bounds();
+          const dx =
+            ((b.minX + b.maxX) / 2) * Math.tan((camera.fov * Math.PI) / 360) * camera.aspect * dist;
+          const dy = ((b.minY + b.maxY) / 2) * Math.tan((camera.fov * Math.PI) / 360) * dist;
+          target.add(right.clone().multiplyScalar(dx)).add(up.clone().multiplyScalar(dy));
+          let lo = 2,
+            hi = R * 12;
+          for (let i = 0; i < 22; i++) {
+            const mid = (lo + hi) / 2;
+            aim(target, mid);
+            const q = bounds();
+            if (Math.max(-q.minX, q.maxX) < margin && Math.max(-q.minY, q.maxY) < margin * 0.96)
+              hi = mid;
+            else lo = mid;
+          }
+          dist = hi;
+        }
+        return dist;
+      }
+      function districtCorners(d) {
+        const c = d.country,
+          hw = ((d.w + 0.6) * U) / 2,
+          hd = ((d.h + 0.6) * U) / 2;
+        const cx = worldX(c.ox + d.x + d.w / 2),
+          cz = worldZ(c.oz + d.z + d.h / 2);
+        const top = 0.25 + Math.max(1, ...d.blocks.map((b) => b.hgt));
+        const out = [];
+        for (const x of [cx - hw, cx + hw])
+          for (const z of [cz - hd, cz + hd])
+            for (const y of [0, top]) out.push(new THREE.Vector3(x, y, z));
+        return out;
+      }
+      function fitOverview() {
+        const hw = (extent.totalW * U) / 2 + 1.5,
+          hd = (extent.totalH * U) / 2 + 1.5;
+        const corners = [];
+        for (const x of [-hw, hw])
+          for (const z of [-hd, hd])
+            for (const y of [0, 5]) corners.push(new THREE.Vector3(x, y, z));
+        const probe = camera.clone();
+        const aim = (t, d) => {
+          probe.position.copy(t).add(dir().multiplyScalar(d));
+          probe.lookAt(t);
+          probe.updateMatrixWorld();
+        };
+        const bounds = () => {
+          let minX = 1,
+            maxX = -1,
+            minY = 1,
+            maxY = -1;
+          corners.forEach((c) => {
+            const q = c.clone().project(probe);
+            minX = Math.min(minX, q.x);
+            maxX = Math.max(maxX, q.x);
+            minY = Math.min(minY, q.y);
+            maxY = Math.max(maxY, q.y);
+          });
+          return { minX, maxX, minY, maxY };
+        };
+        overviewTarget.set(0, 0.5, 0);
+        let dist = R * 3;
+        const forward = dir().negate();
+        const right = new THREE.Vector3()
+          .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+          .normalize();
+        const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+        for (let pass = 0; pass < 4; pass++) {
+          aim(overviewTarget, dist);
+          const b = bounds();
+          const dx =
+            ((b.minX + b.maxX) / 2) * Math.tan((camera.fov * Math.PI) / 360) * camera.aspect * dist;
+          const dy = ((b.minY + b.maxY) / 2) * Math.tan((camera.fov * Math.PI) / 360) * dist;
+          overviewTarget.add(right.clone().multiplyScalar(dx)).add(up.clone().multiplyScalar(dy));
+          let lo = 5,
+            hi = R * 12;
+          for (let i = 0; i < 24; i++) {
+            const mid = (lo + hi) / 2;
+            aim(overviewTarget, mid);
+            const q = bounds();
+            if (Math.max(-q.minX, q.maxX) < 0.94 && Math.max(-q.minY, q.maxY) < 0.9) hi = mid;
+            else lo = mid;
+          }
+          dist = hi;
+        }
+        overviewPos.copy(overviewTarget).add(dir().multiplyScalar(dist));
+      }
+      fitOverview();
+      const camTarget = overviewTarget.clone(),
+        camPos = overviewPos.clone();
+      camera.position.copy(overviewPos);
+      controls.target.copy(overviewTarget);
+      function setMode(m, a = null) {
+        mode = m;
+        follow = a;
+        document.getElementById('mode').textContent =
+          m + (m === 'Follow' ? ` · ${a ? a.id : 'auto'}` : '');
+        document.getElementById('hint').textContent =
+          m === 'Overview'
+            ? '· C cycles · Home returns'
+            : m === 'Follow'
+              ? '· click a beacon to switch · Home returns'
+              : '· Home returns to Overview';
+      }
+      controls.addEventListener('start', () => {
+        if (mode !== 'Free') setMode('Free');
+      });
+      let drift = 0;
+      function driftLight(dt) {
+        if (!T.key) return;
+        const empty = !agents.some((a) => a.alive);
+        drift = empty ? drift + dt / 600 : Math.max(0, drift - dt / 20);
+        const a = 0.25 * Math.sin(drift * Math.PI * 2);
+        T.key.position.set((-0.6 + a) * R, 0.8 * R, (0.4 + a * 0.5) * R);
+      }
+      let followFit = {};
+      function updateCamera(dt) {
+        driftLight(dt);
+        if (scene.fog) {
+          const d = camera.position.distanceTo(controls.target);
+          scene.fog.near = d + R * 0.6;
+          scene.fog.far = d + R * 3.5;
+        }
+        if (mode === 'Free') {
+          controls.update();
+          return;
+        }
+        if (mode === 'Overview') {
+          camTarget.copy(overviewTarget);
+          camPos.copy(overviewPos);
+        }
+        if (mode === 'Follow') {
+          const a =
+            follow ?? agents.filter((x) => x.alive).sort((p, q) => q.lastTouch - p.lastTouch)[0];
+          if (a && a.block) {
+            const d = a.block.district;
+            if (followFit.d !== d || followFit.n !== d.blocks.length) {
+              const t = new THREE.Vector3(d.tx, 0.5, d.tz);
+              const dist = fitBox(districtCorners(d), t, 0.82);
+              followFit = { d, n: d.blocks.length, t, dist };
+            }
+            camTarget.copy(followFit.t).lerp(new THREE.Vector3(a.pos.x, 0.5, a.pos.z), 0.2);
+            camPos.copy(camTarget).add(dir().multiplyScalar(followFit.dist));
+          }
+        }
+        const k = 1 - Math.pow(0.03, dt);
+        controls.target.lerp(camTarget, k);
+        camera.position.lerp(camPos, k);
+        controls.update();
+      }
+
+      // ---------- weather state at a time ----------
+      // world-time constants in sim seconds (the clock runs at 20x): heat 20 s real, contest 5 min
+      // real; trace is left at one sim hour so the strip fills in three real minutes
+      const HEAT = 400,
+        TRACE = 3600,
+        CONTEST = 6000;
+      function stateAt(b, t) {
+        const past = scrub === null ? b.touches : b.touches.filter((x) => x.at <= t);
+        const last = past[past.length - 1];
+        const heat = last ? Math.max(0, 1 - (t - last.at) / HEAT) : 0,
+          trace = last ? Math.max(0, 1 - (t - last.at) / TRACE) : 0;
+        const recentAgents = [];
+        past
+          .filter((x) => t - x.at < CONTEST)
+          .forEach((x) => {
+            if (!recentAgents.includes(x.agent)) recentAgents.push(x.agent);
+          });
+        return {
+          last,
+          heat,
+          trace,
+          contested: recentAgents.length > 1 ? recentAgents.slice(-2) : null,
+        };
+      }
+      // a contested cap is split between the two agents, the halves pulsing towards each other
+      const halfCaps = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(0.42, 0.07, 0.84),
+        new THREE.MeshBasicMaterial({ toneMapped: false }),
+        64,
+      );
+      scene.add(halfCaps);
+      const base = new THREE.Color(),
+        cap = new THREE.Color(),
+        other = new THREE.Color();
+      function paint(t) {
+        let nh = 0;
+        blocks.forEach((b) => {
+          const { last, heat, trace, contested } = stateAt(b, t);
+          const dim = isolate && last?.agent !== isolate ? 0.4 : 1;
+          base.copy(T.tower(b.country.accent));
+          cap.copy(T.cap(b.country.accent));
+          if (b.flight && b.flight.fromAccent !== b.country.accent)
+            base
+              .copy(T.tower(b.flight.fromAccent))
+              .lerp(T.tower(b.country.accent), Math.min(1, (now - b.flight.start) / b.flight.dur));
+          if (b.blink && now - b.blink < 3) cap.set(1, 1, 1).multiplyScalar(4);
+          // heat and trace live on the tower body; the cap lights only under an agent
+          if (last && trace > 0) {
+            base.lerp(last.agent.color, 0.1 + 0.3 * trace);
+            if (heat > 0) base.lerp(last.agent.color, heat * 0.5);
+          }
+          const on = agents.find(
+            (a) =>
+              a.alive && a.block === b && !a.path && (a.verb === 'reading' || a.verb === 'editing'),
+          );
+          const present = on && scrub === null;
+          // presence wins: the split is a record and is hidden while an agent is on the block
+          if (contested && nh < 64 && !present) {
+            const [a1, a2] = contested;
+            // a static split: each half in its agent's colour, at the cap's normal weight
+            cap.copy(a2.color).multiplyScalar(1.3);
+            other.copy(a1.color).multiplyScalar(1.3).multiplyScalar(dim);
+            m4.makeScale(1, 1, 1);
+            m4.setPosition(b.x + 0.21, 0.25 + b.hgt * b.scale + 0.01, b.z);
+            halfCaps.setMatrixAt(nh, m4);
+            halfCaps.setColorAt(nh, other);
+            nh++;
+          }
+          if (present)
+            cap
+              .copy(on.color)
+              .multiplyScalar(on.verb === 'editing' ? 6 * (1 + (on.flicker ?? 0)) : 3.5);
+          base.multiplyScalar(dim);
+          cap.multiplyScalar(dim);
+          towers.setColorAt(b.i, base);
+          caps.setColorAt(b.i, cap);
+        });
+        halfCaps.count = nh;
+        halfCaps.instanceMatrix.needsUpdate = true;
+        if (halfCaps.instanceColor) halfCaps.instanceColor.needsUpdate = true;
+        towers.instanceColor.needsUpdate = caps.instanceColor.needsUpdate = true;
+      }
+      function animateTerrain(dt) {
+        let dirty = false;
+        const k = 1 - Math.pow(0.02, dt);
+        blocks.forEach((b) => {
+          if (b.flight) {
+            placeTower(b);
+            dirty = true;
+            return;
+          }
+          if (b.alive && (Math.abs(b.x - b.tx) > 0.001 || Math.abs(b.z - b.tz) > 0.001)) {
+            b.x += (b.tx - b.x) * k;
+            b.z += (b.tz - b.z) * k;
+            if (Math.abs(b.x - b.tx) < 0.001) {
+              b.x = b.tx;
+              b.z = b.tz;
+            }
+            placeTower(b);
+            dirty = true;
+          }
+          if (b.alive && b.scale < 1) {
+            b.scale = Math.min(1, b.scale + dt / 0.6);
+            placeTower(b);
+            dirty = true;
+          }
+          if (!b.alive && b.scale > 0) {
+            b.scale = Math.max(0, b.scale - dt / 0.8);
+            placeTower(b);
+            dirty = true;
+          }
+        });
+        if (dirty) towers.instanceMatrix.needsUpdate = caps.instanceMatrix.needsUpdate = true;
+        countries.forEach((c) => {
+          c.x += (c.tx - c.x) * k;
+          c.z += (c.tz - c.z) * k;
+          c.plate.position.set(c.x, -0.15, c.z);
+          c.rim.position.set(c.x, 0.01, c.z);
+          c.districts.forEach((d) => {
+            if (d.flight) {
+              const f = d.flight,
+                kk = Math.min(1, (now - f.start) / f.dur);
+              const e = kk < 0.5 ? 2 * kk * kk : 1 - Math.pow(-2 * kk + 2, 2) / 2;
+              d.x0 = f.x0 + (f.x1 - f.x0) * e;
+              d.z0 = f.z0 + (f.z1 - f.z0) * e;
+              d.plat.position.set(d.x0, 0.12 + f.apex * Math.sin(Math.PI * kk), d.z0);
+              if (kk >= 1) {
+                f.landedAt = now;
+                d.movedFrom = { x0: f.x0, z0: f.z0, apex: f.apex, color: f.color, at: now };
+                d.flight = null;
+                d.plat.position.y = 0.12;
+                ripple(d.x0, d.z0, Math.max(d.w, d.h) * U, f.color);
+              }
+              return;
+            }
+            d.x0 += (d.tx - d.x0) * k;
+            d.z0 += (d.tz - d.z0) * k;
+            d.plat.position.set(d.x0, 0.12, d.z0);
+          });
+        });
+        updateRibbons();
+        scars.children.slice().forEach((s) => {
+          if (s.born === null) return;
+          const k = (now - s.born) / (10 * SPEED);
+          s.material.opacity = 0.9 * (1 - k);
+          if (k > 1) scars.remove(s);
+        });
+      }
+      function animateWeather() {
+        agents.forEach((a) => {
+          if (!a.alive) return;
+          const vis = scrub === null;
+          const dimA = isolate && isolate !== a ? 0.45 : 1;
+          if (a.phase === 'arriving' || a.phase === 'leaving') {
+            // beam-in from the sky over the map centre, and its reverse
+            const k = Math.min(1, (now - a.phaseAt) / (a.phase === 'arriving' ? 14 : 16));
+            const e = a.phase === 'arriving' ? 1 - Math.pow(1 - k, 3) : k * k * k;
+            const restY = a.pos.y + 0.25 + 0.95;
+            const head =
+              a.phase === 'arriving' ? SKY - (SKY - restY) * e : restY + (SKY - restY) * e;
+            const tail =
+              a.phase === 'arriving'
+                ? SKY - (SKY - restY) * Math.min(1, e * 1.15)
+                : restY + (SKY - restY) * Math.max(0, e * 1.3 - 0.3);
+            a.core.position.set(a.pos.x, head, a.pos.z);
+            a.core.scale.setScalar(
+              a.phase === 'arriving' ? 0.001 + 0.09 * e : 0.09 * (1 - e * 0.6),
+            );
+            a.halo.position.copy(a.core.position);
+            a.halo.scale.setScalar(
+              a.phase === 'arriving'
+                ? 0.018 * Math.max(0, e * 3 - 2)
+                : 0.018 * (1 - Math.min(1, e * 3)),
+            );
+            a.halo.material.opacity = vis ? dimA * (a.verb === 'waiting' ? 0.5 : 1) : 0;
+            a.stem.visible = vis;
+            a.stem.position.set(a.pos.x, (head + tail) / 2, a.pos.z);
+            a.stem.scale.y = Math.max(0.01, Math.abs(head - tail));
+            a.light.position.copy(a.core.position);
+            a.light.intensity = vis ? 8 * dimA * (a.phase === 'arriving' ? e : 1 - e) : 0;
+            a.light.distance = 8;
+            a.spot.visible =
+              a.band.visible =
+              a.ghost.visible =
+              a.arc.visible =
+              a.workLight.visible =
+                false;
+            a.core.visible = vis && a.core.scale.x > 0.002;
+            if (a.phase === 'arriving' && k >= 1 && a.landed < a.phaseAt) {
+              // hand over to the resting beacon already risen: no second bloom
+              a.landed = now - 10;
+              a.lastTouch = -1e9;
+            }
+            return;
+          }
+          const since = now - a.landed;
+          // contact frame: a spike that decays in ~0.2 s real time
+          const flash = Math.exp(-since / 3);
+          // rise with overshoot (back-out) over ~0.5 s
+          const k = Math.min(1, since / 10),
+            c1 = 1.7,
+            ease =
+              1 +
+              c1 * Math.pow(k - 1, 3) +
+              (c1 - 1) * Math.pow(k - 1, 2) * (k - 1) +
+              (c1 + 1) * Math.pow(k - 1, 2);
+          const waiting = a.verb === 'waiting' || a.verb === 'idle';
+          const breathe = 1 + 0.08 * Math.sin(now / (waiting ? 14 : 8) + a.hue);
+          if (a.path) {
+            a.core.position.copy(a.pos).y += 0.02;
+            a.core.scale.setScalar(0.08);
+            a.halo.material.opacity = 0;
+            a.stem.visible =
+              a.spot.visible =
+              a.band.visible =
+              a.ghost.visible =
+              a.arc.visible =
+              a.workLight.visible =
+                false;
+            a.light.position.copy(a.pos).y += 0.6;
+            a.light.intensity = vis ? 7 * dimA : 0;
+            a.light.distance = 5;
+          } else {
+            // running lifts the beacon 40%: it is at the terminal, not on the file
+            a.lift += ((a.verb === 'running' || !a.block ? 0.4 : 0) - a.lift) * 0.1;
+            const y = a.pos.y + 0.25 + 0.95 * ease * (1 + a.lift);
+            a.core.position.set(a.pos.x, y, a.pos.z);
+            a.core.scale.setScalar((0.08 + 0.03 * k) * (1 + 1.6 * flash));
+            a.halo.position.copy(a.core.position);
+            a.halo.scale.setScalar(0.018 * k * breathe * (1 + 0.4 * flash) * dimA);
+            a.halo.material.opacity = vis ? dimA : 0;
+            a.stem.visible = vis;
+            a.stem.position.set(a.pos.x, (a.pos.y + y) / 2, a.pos.z);
+            a.stem.scale.y = Math.max(0.01, y - a.pos.y);
+            a.spot.visible = vis && !!a.block;
+            const scanning = vis && a.verb === 'reading' && since > 8;
+            a.band.visible = a.ghost.visible = scanning;
+            if (scanning) {
+              const b = a.block,
+                h = b.hgt * b.scale;
+              const kk = (now / 16) % 1,
+                e = kk < 0.5 ? 4 * kk * kk * kk : 1 - Math.pow(-2 * kk + 2, 3) / 2;
+              const env = Math.pow(Math.sin(e * Math.PI), 0.7);
+              a.band.position.set(b.x, 0.25 + h * e, b.z);
+              a.band.material.opacity = 0.9 * env * dimA;
+              a.ghost.position.set(b.x, 0.25 + (h * e) / 2, b.z);
+              a.ghost.scale.y = Math.max(0.01, h * e);
+              a.ghost.material.opacity = 0.16 * (1 - e) * env * dimA;
+            }
+            a.flicker = 0;
+            const working = vis && a.verb === 'editing' && since > 12;
+            if (working) editState(a);
+            else a.nextShock = a.nextSpark = undefined;
+            a.workLight.visible = working;
+            if (working) {
+              a.workLight.position.set(
+                a.block.x,
+                0.25 + a.block.hgt * a.block.scale + 0.03,
+                a.block.z,
+              );
+              a.workLight.material.uniforms.uOpacity.value = (1 + a.flicker * 2) * dimA;
+            }
+            a.arc.visible = vis && a.verb === 'running';
+            a.arc.position.copy(a.core.position);
+            a.arc.material.rotation = -(now / SPEED) * ((Math.PI * 2) / 1.5);
+            a.arc.material.opacity = dimA;
+            a.spot.position.set(a.pos.x, a.pos.y - 0.02, a.pos.z);
+            a.spot.scale.setScalar(0.9 + 0.1 * breathe + 0.6 * flash);
+            a.spot.material.opacity = (0.3 + 0.5 * flash) * dimA;
+            a.light.position.copy(a.core.position);
+            a.light.intensity = vis ? 8 * dimA * (1 + 2.5 * flash) : 0;
+            a.light.distance = 8;
+          }
+          a.core.visible = vis;
+        });
+      }
+
+      // ---------- HUD ----------
+      const fmt = (s) => (s < 60 ? `${Math.round(s)}s` : `${Math.round(s / 60)} min`);
+      const lastLeft = () => {
+        const done = agents.filter((a) => !a.alive);
+        const t = done.length
+          ? Math.max(...done.map((a) => a.done))
+          : log.length
+            ? log[log.length - 1].at
+            : null;
+        return t === null
+          ? null
+          : {
+              ago: now - t,
+              hue: done.length
+                ? done.sort((p, q) => q.done - p.done)[0].hue
+                : log[log.length - 1].agent.hue,
+            };
+      };
+      const fmtLong = (sec) => (sec < 3600 ? fmt(sec) : `${Math.round(sec / 3600)} h`);
+      function emptyState() {
+        const forced = document.getElementById('state').value;
+        if (forced) return forced;
+        if (agents.some((a) => a.alive)) return '';
+        const last = lastLeft();
+        return last && last.ago > TRACE ? 'cold' : 'quiet';
+      }
+      function emptyRow(state) {
+        const last = lastLeft();
+        const dot = last
+          ? `<span class="dot" style="color:hsl(${last.hue},90%,62%);opacity:${state === 'cold' ? 0.35 : 0.5}"></span>`
+          : '';
+        const ago = last
+          ? fmtLong(state === 'cold' && last.ago < TRACE ? 6 * 3600 : last.ago)
+          : null;
+        if (state === 'deaf')
+          return [
+            'warn',
+            `<span>no hook in this project</span><span>·</span><code>strata hook install</code>`,
+          ];
+        if (state === 'disconnected')
+          return [
+            'warn',
+            `<span>no server on :4747</span><span>·</span><span>showing ${new Date(Date.now() - 1000 * 60 * 7).toTimeString().slice(0, 5)}</span>`,
+          ];
+        return [
+          '',
+          ago
+            ? `${dot}<span>no agent</span><span>·</span><span>last left ${ago} ago</span>`
+            : `<span>no agent</span><span>·</span><span>no session yet</span>`,
+        ];
+      }
+      function drawRoster() {
+        const el = document.getElementById('roster');
+        el.innerHTML = '';
+        const state = emptyState();
+        document.getElementById('stale').style.display =
+          state === 'disconnected' ? 'block' : 'none';
+        if (
+          state &&
+          !agents.some((a) => a.alive && !(a.phase === 'arriving' && now - a.phaseAt < 8))
+        ) {
+          const [cls, html] = emptyRow(state);
+          const row = document.createElement('div');
+          row.className = `row empty ${cls}`;
+          row.style.gridTemplateColumns = 'auto';
+          row.innerHTML = `<span style="display:flex;gap:7px;align-items:baseline">${html}</span>`;
+          el.appendChild(row);
+        }
+        agents.forEach((a) => {
+          if (!a.alive && now - a.done > 90) return;
+          if (a.phase === 'arriving' && now - a.phaseAt < 8) return;
+          const row = document.createElement('div');
+          row.className = 'row' + (a.alive ? '' : ' done');
+          const where =
+            a.alive && a.block && a.verb !== 'running'
+              ? `${a.block.country.name} · ${a.block.district.rel}`
+              : '';
+          row.innerHTML = `<span class="dot" style="color:hsl(${a.hue},90%,62%)"></span><span>${a.id}</span><span class="verb">${a.alive ? (a.path ? 'moving' : a.verb) : 'done'}</span><span class="where">${where}</span><span class="path">${a.verb === 'running' ? 'npm run gate' : (a.block?.id ?? '')}</span>`;
+          row.onmouseenter = () => {
+            isolate = a;
+          };
+          row.onmouseleave = () => {
+            isolate = null;
+          };
+          row.onclick = () => setMode('Follow', a);
+          el.appendChild(row);
+        });
+      }
+      const tl = document.getElementById('tl'),
+        tctx = tl.getContext('2d');
+      tl.width = panel.clientWidth;
+      const TLW = tl.width;
+      function drawTimeline() {
+        tctx.clearRect(0, 0, TLW, 30);
+        tctx.fillStyle = 'rgba(255,255,255,.06)';
+        tctx.fillRect(0, 6, TLW, 24);
+        for (let m = 0; m <= 6; m++) {
+          tctx.fillStyle = 'rgba(255,255,255,.12)';
+          tctx.fillRect(TLW - (m * TLW) / 6, 6, 1, 24);
+        }
+        agents.forEach((a, i) =>
+          log.forEach((l) => {
+            if (l.agent !== a || now - l.at > TRACE) return;
+            const x = TLW - ((now - l.at) / TRACE) * TLW;
+            tctx.fillStyle = `hsla(${a.hue},85%,62%,${isolate && isolate !== a ? 0.2 : l.verb === 'editing' ? 0.95 : 0.5})`;
+            tctx.fillRect(x, 8 + i * 7, 2, 6);
+          }),
+        );
+        if (scrub !== null) {
+          const x = TLW - ((now - scrub) / TRACE) * TLW;
+          tctx.fillStyle = '#fff';
+          tctx.fillRect(x - 1, 2, 2, 28);
+        }
+        const state = emptyState();
+        const quietFor = lastLeft()?.ago ?? null;
+        document.getElementById('tlabel').innerHTML =
+          scrub !== null
+            ? `as of <b>${fmt(now - scrub)} ago</b> · Esc returns to now`
+            : state === 'disconnected'
+              ? 'last hour · stale'
+              : state === 'cold'
+                ? `quiet for ${fmtLong(quietFor !== null && quietFor > TRACE ? quietFor : 6 * 3600)}`
+                : 'last hour';
+      }
+      function drawCaption() {
+        const c = document.getElementById('caption');
+        if (!selected) {
+          c.style.display = 'none';
+          return;
+        }
+        const last = selected.touches
+          .slice(-3)
+          .reverse()
+          .map(
+            (x) =>
+              `<span style="color:hsl(${x.agent.hue},90%,62%)">●</span> ${x.agent.id} ${fmt(now - x.at)} ago`,
+          )
+          .join('<br>');
+        c.style.display = 'block';
+        c.innerHTML = `<a href="vscode://file/Users/julien.leroy/www/strata/${selected.id}">${selected.id}</a><div class="m">${(selected.size / 1024).toFixed(1)} kB${selected.alive ? '' : ' · removed'}</div>${last ? '<div class="m">' + last + '</div>' : ''}`;
+      }
+      let termDirty = 0;
+      function drawTerminal() {
+        if (termLines.length !== termDirty) {
+          termDirty = termLines.length;
+          document.getElementById('term').innerHTML = termLines.join('\n');
+        }
+      }
+
+      // ---------- input ----------
+      const ray = new THREE.Raycaster(),
+        mouse = new THREE.Vector2();
+      const labelEl = document.getElementById('label');
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        mouse.set((e.offsetX / W()) * 2 - 1, -(e.offsetY / H()) * 2 + 1);
+        ray.setFromCamera(mouse, camera);
+        const hit = ray.intersectObject(towers)[0];
+        hover = hit ? blocks.find((b) => b.i === hit.instanceId) : null;
+        if (hover) {
+          labelEl.style.display = 'block';
+          labelEl.style.left = e.offsetX + 'px';
+          labelEl.style.top = e.offsetY + 'px';
+          labelEl.textContent = hover.id.split('/').pop();
+        } else labelEl.style.display = 'none';
+        showHoverArc(hover);
+      });
+      let downAt = null;
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        downAt = [e.clientX, e.clientY];
+      });
+      renderer.domElement.addEventListener('mouseup', (e) => {
+        if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+        const a = agents.find((a) => {
+          if (!a.alive) return false;
+          const p = a.core.position.clone().project(camera);
+          return (
+            Math.hypot(((p.x + 1) / 2) * W() - e.offsetX, ((1 - p.y) / 2) * H() - e.offsetY) < 14
+          );
+        });
+        if (a) {
+          setMode('Follow', a);
+          return;
+        }
+        selected = hover;
+        showImports(selected);
+      });
+      let tdrag = false;
+      tl.addEventListener('mousedown', (e) => {
+        tdrag = true;
+        scrubAt(e);
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (tdrag) scrubAt(e);
+      });
+      window.addEventListener('mouseup', () => {
+        tdrag = false;
+      });
+      function scrubAt(e) {
+        const x = Math.max(0, Math.min(TLW, e.clientX - tl.getBoundingClientRect().left));
+        scrub = x >= TLW - 2 ? null : now - (1 - x / TLW) * TRACE;
+      }
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'c' || e.key === 'C')
+          setMode(mode === 'Overview' ? 'Follow' : mode === 'Follow' ? 'Free' : 'Overview');
+        if (e.key === 'Home') setMode('Overview');
+        if (e.key === 'Escape') {
+          selected = null;
+          scrub = null;
+          showImports(null);
+        }
+        if ((e.key === 'f' || e.key === 'F') && selected) {
+          setMode('Free');
+          const d = selected.district;
+          const t = new THREE.Vector3(d.tx, 0.5, d.tz);
+          const dist = fitBox(districtCorners(d), t, 0.82);
+          controls.target.copy(t);
+          camera.position.copy(t).add(dir().multiplyScalar(dist));
+        }
+      });
+      window.addEventListener('resize', () => {
+        camera.aspect = W() / H();
+        camera.updateProjectionMatrix();
+        renderer.setSize(W(), H());
+        composer.setSize(W(), H());
+        fitOverview();
+      });
+
+      const mover = () =>
+        Math.random() < 0.5 ? pick(agents.filter((a) => a.alive && a.phase === 'live')) : null;
+      const freeBlock = () => {
+        const busy = blocks.filter(
+          (b) => b.alive && !b.flight && agents.some((a) => a.block === b),
+        );
+        return busy.length && Math.random() < 0.5
+          ? pick(busy)
+          : pick(blocks.filter((b) => b.alive && !b.flight));
+      };
+      document.getElementById('sim-rename').onclick = (e) => {
+        e.preventDefault();
+        const b = freeBlock();
+        if (b) renameFile(b);
+      };
+      document.getElementById('sim-move').onclick = (e) => {
+        e.preventDefault();
+        const b = freeBlock();
+        if (!b) return;
+        const c = pick(countries.filter((x) => x !== b.country && x.districts.length));
+        moveFile(b, pick(c.districts), mover());
+      };
+      document.getElementById('sim-folder').onclick = (e) => {
+        e.preventDefault();
+        const d = pick(
+          countries
+            .flatMap((c) => c.districts)
+            .filter(
+              (x) =>
+                !x.flight &&
+                x.blocks.length >= 3 &&
+                x.blocks.length <= 30 &&
+                x.country.districts.length > 1 &&
+                !x.blocks.some((b) => b.flight),
+            ),
+        );
+        if (!d) return;
+        moveFolder(d, pick(countries.filter((x) => x !== d.country)), mover());
+      };
+
+      // ---------- seed an hour, then run ----------
+      for (let i = 0; params.get('trace') !== '0' && i < 3600; i += 3) {
+        now = i;
+        step(0.15);
+      }
+      now = 3600;
+      seeding = false;
+      termLines.length = 0;
+      agents.forEach((a) => {
+        a.from = a.block;
+        a.landed = now - 100;
+      });
+      // the seeded hour ran at 20x with an unrealistic collision rate; keep only the last hour's last toucher per block
+      blocks.forEach((b) => {
+        const last = b.touches[b.touches.length - 1];
+        b.touches = last
+          ? b.touches.filter((x) => x.agent === last.agent || now - x.at > CONTEST)
+          : [];
+      });
+      if (params.get('agents') === '0')
+        agents.forEach((a) => {
+          a.alive = false;
+          a.phase = 'gone';
+          a.verb = 'done';
+          a.done = now - 720;
+          [a.halo, a.core, a.stem, a.spot, a.arc, a.workLight, a.band, a.ghost, a.light].forEach(
+            (o) => (o.visible = false),
+          );
+        });
+      let last = performance.now();
+      renderer.setAnimationLoop((ts) => {
+        const dt = Math.min(0.05, (ts - last) / 1000);
+        last = ts;
+        step(dt);
+        travel(dt);
+        animateTerrain(dt);
+        animateWeather();
+        animateFx(dt);
+        rebuildTrails();
+        paint(scrub ?? now);
+        updateCamera(dt);
+        drawRoster();
+        drawTimeline();
+        drawCaption();
+        drawTerminal();
+        composer.render();
+      });
+    </script>
+  </body>
+</html>

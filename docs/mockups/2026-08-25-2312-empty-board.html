@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata empty board: the panel with no agent</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #101216;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 20px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 14px;
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      h1 small {
+        color: #7c879f;
+        font-weight: 400;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .card {
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 11px;
+        margin: 0;
+        padding: 9px 11px;
+        color: #dfe6f5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-bottom: 1px solid #1c2130;
+        display: flex;
+        justify-content: space-between;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .card h2 .no {
+        color: #e6a8a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .view {
+        aspect-ratio: 1 / 1.1;
+        position: relative;
+      }
+      .view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .hud {
+        position: absolute;
+        left: 10px;
+        top: 8px;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.5);
+      }
+      .hud b {
+        color: #fff;
+        font-weight: 600;
+      }
+      .row {
+        position: absolute;
+        right: 8px;
+        top: 26px;
+        padding: 4px 9px;
+        border-radius: 3px;
+        font-size: 11px;
+        display: flex;
+        gap: 7px;
+        align-items: baseline;
+        background: rgba(6, 8, 12, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #8a94ab;
+        max-width: calc(100% - 16px);
+      }
+      .row .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        align-self: center;
+      }
+      .row code {
+        color: #dfe6f5;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0 5px;
+        border-radius: 2px;
+      }
+      .row.warn {
+        border-color: rgba(242, 193, 78, 0.5);
+      }
+      .tl {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 40px;
+        background: linear-gradient(transparent, rgba(4, 5, 8, 0.9) 45%);
+      }
+      .tl .label {
+        position: absolute;
+        bottom: 24px;
+        left: 10px;
+        font-size: 9.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.5);
+      }
+      .tl .strip {
+        position: absolute;
+        bottom: 4px;
+        left: 0;
+        right: 0;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .tl .strip i {
+        position: absolute;
+        top: 3px;
+        width: 2px;
+        height: 5px;
+        background: hsl(42, 85%, 62%);
+      }
+      .stale {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: rgba(45, 47, 56, 0.35);
+        backdrop-filter: saturate(0.55);
+      }
+      .notes {
+        padding: 10px 11px 12px;
+        color: #9aa5bd;
+        font-size: 11.5px;
+      }
+      .notes b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Four empty states
+      <small>(same map, no beacon; only the roster row and the map treatment differ)</small>
+    </h1>
+    <div class="board" id="states"></div>
+    <h1>
+      Ambient motion while empty
+      <small>(what, if anything, moves on its own; the light drift is sped up 60x here)</small>
+    </h1>
+    <div class="board" id="ambient"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const ACC = [212, 28, 95, 160, 280, 350];
+      const std = (color) =>
+        new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+      const U = 1.15;
+      let seed = 3;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      const tg = new THREE.BoxGeometry(0.8, 1, 0.8);
+      tg.translate(0, 0.5, 0);
+
+      function world(sc, trace) {
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), std(hsl(228, 0.08, 0.24)));
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.3;
+        ground.receiveShadow = true;
+        sc.add(ground);
+        const grid = new THREE.GridHelper(200, Math.round(200 / U), 0x3a3d48, 0x3a3d48);
+        grid.position.y = -0.29;
+        grid.material.transparent = true;
+        grid.material.opacity = 0.35;
+        sc.add(grid);
+        const plates = [];
+        const towers = [];
+        seed = 3;
+        const layoutC = [
+          [-11, -8, 8, 6],
+          [1, -8, 6, 6],
+          [9, -8, 7, 6],
+          [-11, 1, 5, 7],
+          [-4, 1, 9, 7],
+          [7, 1, 9, 7],
+        ];
+        layoutC.forEach(([cx, cz, w, h], i) => {
+          const hue = ACC[i % ACC.length];
+          const p = new THREE.Mesh(
+            new THREE.BoxGeometry((w + 1.6) * U, 0.3, (h + 1.6) * U),
+            std(hsl(hue, 0.18, 0.3)),
+          );
+          p.position.set((cx + w / 2) * U, -0.15, (cz + h / 2) * U);
+          p.receiveShadow = p.castShadow = true;
+          sc.add(p);
+          plates.push(p);
+          const e = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.BoxGeometry((w + 1.6) * U, 0.02, (h + 1.6) * U)),
+            new THREE.LineBasicMaterial({
+              color: hsl(hue, 0.45, 0.58),
+              transparent: true,
+              opacity: 0.35,
+            }),
+          );
+          e.position.set((cx + w / 2) * U, 0.01, (cz + h / 2) * U);
+          sc.add(e);
+          const pl = new THREE.Mesh(
+            new THREE.BoxGeometry((w + 0.6) * U, 0.25, (h + 0.6) * U),
+            std(hsl(hue, 0.22, 0.36)),
+          );
+          pl.position.set((cx + w / 2) * U, 0.12, (cz + h / 2) * U);
+          pl.receiveShadow = pl.castShadow = true;
+          sc.add(pl);
+          for (let x = 0; x < w; x++)
+            for (let z = 0; z < h; z++) {
+              if (rnd() < 0.25) continue;
+              const ht = 0.4 + rnd() * rnd() * 3.5;
+              const m = new THREE.Mesh(tg, std(hsl(hue, 0.26, 0.5)));
+              m.position.set((cx + x + 0.5) * U, 0.25, (cz + z + 0.5) * U);
+              m.scale.y = ht;
+              m.castShadow = m.receiveShadow = true;
+              sc.add(m);
+              const cap = new THREE.Mesh(
+                new THREE.BoxGeometry(0.84, 0.06, 0.84),
+                new THREE.MeshBasicMaterial({ color: hsl(hue, 0.45, 0.58), toneMapped: false }),
+              );
+              cap.position.set(m.position.x, 0.25 + ht, m.position.z);
+              sc.add(cap);
+              towers.push({ m, hue });
+              if (trace && i === 4 && rnd() < 0.5)
+                m.material.color.lerp(hsl(42, 1, 0.6), 0.2 + rnd() * 0.2);
+            }
+        });
+        return { plates, towers };
+      }
+
+      const states = [
+        {
+          key: 'Quiet',
+          title: 'Quiet',
+          rec: 'hook installed, no session',
+          trace: true,
+          row: '<span class="dot" style="color:hsl(42,90%,62%);opacity:.5"></span><span>no agent</span><span>·</span><span>last left 12 min ago</span>',
+          tlLabel: 'last hour',
+          marks: true,
+          stale: false,
+          notes:
+            "<b>The common case.</b> One dim row with the last agent's colour and how long since it left; its trace is still fading on the map; the strip still shows the last twenty minutes. Reassurance, and one number.",
+        },
+        {
+          key: 'Deaf',
+          title: 'Deaf',
+          rec: 'no hook in this project',
+          trace: false,
+          row: '<span>no hook in this project</span><span>·</span><code>strata hook install</code>',
+          warn: true,
+          tlLabel: 'last hour',
+          marks: false,
+          stale: false,
+          notes:
+            '<b>The one empty state with a call to action.</b> Without the hook there will never be weather, so the row names the command and it is copyable. The map is complete and at rest; nothing is wrong with the terrain.',
+        },
+        {
+          key: 'Disconnected',
+          title: 'Disconnected',
+          rec: 'no server',
+          trace: true,
+          row: '<span>no server on :4747</span><span>·</span><span>showing 14:32</span>',
+          warn: true,
+          tlLabel: 'last hour · stale',
+          marks: true,
+          stale: true,
+          notes:
+            '<b>The picture is a photograph, and says so.</b> Map desaturated a notch and veiled, the row gives the time of the last frame. Nothing else changes: the last known map is still worth having.',
+        },
+        {
+          key: 'Cold',
+          title: 'Cold',
+          rec: 'quiet longer than the map remembers',
+          trace: false,
+          row: '<span class="dot" style="color:hsl(325,90%,62%);opacity:.35"></span><span>no agent</span><span>·</span><span>last left 6 h ago</span>',
+          tlLabel: 'quiet for 6 h',
+          marks: false,
+          stale: false,
+          notes:
+            '<b>The map as a map.</b> Trace expired, strip empty and labelled with the quiet duration. This is where "what is this project shaped like" has to carry the panel on its own.',
+        },
+      ];
+      const ambient = [
+        {
+          key: 'A',
+          title: 'Still',
+          rec: '',
+          notes:
+            '<b>Nothing moves.</b> Honest to the rule that motion means "happening now". The risk: a returning eye cannot tell live from frozen, and a frozen panel beside a live terminal reads as crashed.',
+          tick: () => {},
+        },
+        {
+          key: 'B',
+          title: 'Light drift',
+          rec: 'recommended',
+          notes:
+            '<b>The key light drifts a few degrees over ten minutes</b>, shadows lengthen like a room nobody is moving in. Global, far too slow to be an event, and the truthful signal: time passes, nothing else does. Shown 60x faster.',
+          tick: (s, w, key) => {
+            const a = -0.6 + 0.35 * Math.sin(((s / 10) * Math.PI * 2) / 6);
+            key.position.set(a * 40, 32, 0.4 * 40);
+          },
+        },
+        {
+          key: 'C',
+          title: 'Breathing plates',
+          rec: 'refused',
+          no: 'refused',
+          notes:
+            '<b>Plate rims and caps pulse slowly.</b> Pretty, and exactly the kind of localised motion the panel reserves for events; a few days of it and the eye ignores every pulse, including the ones that matter.',
+          tick: (s, w) => {
+            w.towers.forEach((t, i) => {
+              const k = 0.5 + 0.5 * Math.sin(s * 1.2 + i * 0.3);
+              t.m.material.emissive = hsl(t.hue, 0.6, 0.3 * k);
+            });
+          },
+        },
+        {
+          key: 'D',
+          title: 'Attract orbit',
+          rec: 'refused',
+          no: 'refused',
+          notes:
+            '<b>The camera orbits slowly after minutes of nothing</b>, the arcade convention. Breaks "the camera never moves on its own"; a panel that starts drifting next to a terminal is a distraction with nothing to show. If it ever exists it is a setting, off by default.',
+          tick: (s, w, key, cam) => {
+            const a = s * 0.08;
+            const d = 62;
+            cam.position.set(Math.sin(a) * d * 0.75, 38, Math.cos(a) * d * 0.75);
+            cam.lookAt(0, 0.5, 0);
+          },
+        },
+      ];
+
+      function build(opt, holder, isState) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const row = isState ? `<div class="row${opt.warn ? ' warn' : ''}">${opt.row}</div>` : '';
+        const tl = isState
+          ? `<div class="tl"><div class="label">${opt.tlLabel}</div><div class="strip">${opt.marks ? Array.from({ length: 26 }, (_, i) => `<i style="left:${62 + i * 1.3 + Math.sin(i) * 0.5}%"></i>`).join('') : ''}</div></div>`
+          : '';
+        card.innerHTML = `<h2><span>${opt.key}${isState ? '' : ' · ' + opt.title}</span><span class="${opt.no ? 'no' : 'rec'}">${opt.no ?? opt.rec}</span></h2><div class="view"><canvas></canvas>${opt.stale ? '<div class="stale"></div>' : ''}<div class="hud">camera <b>Overview</b></div>${row}${tl}</div><div class="notes">${opt.notes}</div>`;
+        document.getElementById(holder).appendChild(card);
+        const canvas = card.querySelector('canvas'),
+          view = card.querySelector('.view');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d2f38);
+        scene.fog = new THREE.Fog(0x3a3c46, 110, 220);
+        const camera = new THREE.PerspectiveCamera(30, 1 / 1.1, 0.1, 300);
+        const ELEV = THREE.MathUtils.degToRad(38),
+          YAW = THREE.MathUtils.degToRad(15);
+        camera.position
+          .set(Math.cos(ELEV) * Math.sin(YAW), Math.sin(ELEV), Math.cos(ELEV) * Math.cos(YAW))
+          .multiplyScalar(62);
+        camera.lookAt(0, 0.5, 0);
+        scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const key = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        key.position.set(-24, 32, 16);
+        key.castShadow = true;
+        key.shadow.mapSize.set(2048, 2048);
+        key.shadow.radius = 5;
+        key.shadow.bias = -0.0004;
+        const c = key.shadow.camera;
+        c.left = c.bottom = -30;
+        c.right = c.top = 30;
+        c.far = 120;
+        scene.add(key);
+        const r = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+        r.position.set(20, 12, -16);
+        scene.add(r);
+        const w = world(scene, isState ? opt.trace : false);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(400, 440), 0.5, 0.3, 1.0));
+        composer.addPass(new OutputPass());
+        composer.addPass(new SMAAPass());
+        function resize() {
+          const cw = view.clientWidth,
+            ch = view.clientHeight;
+          renderer.setSize(cw, ch, false);
+          composer.setSize(cw, ch);
+          camera.aspect = cw / ch;
+          camera.updateProjectionMatrix();
+        }
+        new ResizeObserver(resize).observe(view);
+        resize();
+        const t0 = performance.now();
+        renderer.setAnimationLoop((ts) => {
+          const s = (ts - t0) / 1000;
+          if (!isState) opt.tick(s, w, key, camera);
+          composer.render();
+        });
+      }
+      states.forEach((o) => build(o, 'states', true));
+      ambient.forEach((o) => build(o, 'ambient', false));
+    </script>
+  </body>
+</html>

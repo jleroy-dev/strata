@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata trace board: what a folder move leaves behind</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #101216;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 20px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 14px;
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      h1 small {
+        color: #7c879f;
+        font-weight: 400;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+      .card {
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 11px;
+        margin: 0;
+        padding: 9px 11px;
+        color: #dfe6f5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-bottom: 1px solid #1c2130;
+        display: flex;
+        justify-content: space-between;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .card h2 .cur {
+        color: #7c879f;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .view {
+        aspect-ratio: 1.5 / 1;
+        position: relative;
+      }
+      .view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .clock {
+        position: absolute;
+        left: 10px;
+        top: 8px;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.5);
+      }
+      .notes {
+        padding: 10px 11px 12px;
+        color: #9aa5bd;
+        font-size: 11.5px;
+      }
+      .notes b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Trace board
+      <small
+        >(the same district flies as one body in every card; only what it leaves behind differs. 12
+        s cycle, the flight is in the first second)</small
+      >
+    </h1>
+    <div class="board" id="board"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(42, 1, 0.6);
+      const HUE_A = 212,
+        HUE_B = 28;
+      const std = (color) =>
+        new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+      const easeInOut = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2),
+        easeOut = (k) => 1 - Math.pow(1 - k, 3);
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const U = 1.15,
+        CYCLE = 12,
+        GAP = 9,
+        FLIGHT = [0.5, 1.4];
+      const tg = new THREE.BoxGeometry(0.8, 1, 0.8);
+      tg.translate(0, 0.5, 0);
+      const towerColor = (hue) => hsl(hue, 0.26, 0.5),
+        capColor = (hue) => hsl(hue, 0.45, 0.58);
+      function tower(sc, x, z, h, hue) {
+        const m = new THREE.Mesh(tg, std(towerColor(hue)));
+        m.position.set(x, 0.25, z);
+        m.scale.y = h;
+        m.castShadow = m.receiveShadow = true;
+        sc.add(m);
+        const cap = new THREE.Mesh(
+          new THREE.BoxGeometry(0.84, 0.06, 0.84),
+          new THREE.MeshBasicMaterial({ color: capColor(hue), toneMapped: false }),
+        );
+        cap.position.set(x, 0.25 + h, z);
+        sc.add(cap);
+        return {
+          m,
+          cap,
+          h,
+          x,
+          z,
+          place(px, pz, py = 0.25) {
+            m.position.set(px, py, pz);
+            cap.position.set(px, py + h, pz);
+          },
+        };
+      }
+      function arcPts(x0, z0, x1, z1, apex, n = 40) {
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const k = i / n;
+          pts.push(
+            new THREE.Vector3(
+              x0 + (x1 - x0) * k,
+              0.3 + apex * Math.sin(Math.PI * k),
+              z0 + (z1 - z0) * k,
+            ),
+          );
+        }
+        return pts;
+      }
+      function dashed(sc, pts, color) {
+        const l = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineDashedMaterial({
+            color,
+            dashSize: 0.4,
+            gapSize: 0.25,
+            transparent: true,
+            opacity: 0,
+            toneMapped: false,
+          }),
+        );
+        l.computeLineDistances();
+        sc.add(l);
+        return l;
+      }
+      function ribbon(sc, pts, color, width = 0.14) {
+        const geo = new THREE.BufferGeometry();
+        const mesh = new THREE.Mesh(
+          geo,
+          new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+          }),
+        );
+        sc.add(mesh);
+        return {
+          mesh,
+          set(head, fade) {
+            const pos = [],
+              cols = [];
+            const n = Math.max(1, Math.floor(head * (pts.length - 1)));
+            for (let i = 0; i < n; i++) {
+              const a = pts[i],
+                b = pts[i + 1];
+              const d = new THREE.Vector3().subVectors(b, a);
+              const nrm = new THREE.Vector3(-d.z, 0, d.x)
+                .normalize()
+                .multiplyScalar(width * (0.3 + 0.7 * (i / n)));
+              const p = [
+                a.clone().add(nrm),
+                a.clone().sub(nrm),
+                b.clone().add(nrm),
+                b.clone().sub(nrm),
+              ];
+              const bright = (0.2 + 6 * Math.pow(i / n, 2)) * fade;
+              const c = color.clone().multiplyScalar(bright);
+              [0, 1, 2, 1, 3, 2].forEach((j) => {
+                pos.push(p[j].x, p[j].y + 0.6, p[j].z);
+                cols.push(c.r, c.g, c.b);
+              });
+            }
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+            mesh.visible = fade > 0 && head > 0;
+          },
+        };
+      }
+      function afterimage(sc, cells, x, z, hue) {
+        const g = new THREE.Group();
+        cells.forEach(([i, j, h]) => {
+          const e = new THREE.LineSegments(
+            new THREE.EdgesGeometry(tg),
+            new THREE.LineBasicMaterial({
+              color: capColor(hue).multiplyScalar(1.4),
+              transparent: true,
+              opacity: 0,
+              toneMapped: false,
+            }),
+          );
+          e.position.set(x + (i - 1) * U, 0.25, z + (j - 0.5) * U);
+          e.scale.y = h;
+          g.add(e);
+        });
+        const pl = new THREE.LineSegments(
+          new THREE.EdgesGeometry(new THREE.BoxGeometry(3.6 * U, 0.02, 2.6 * U)),
+          new THREE.LineBasicMaterial({
+            color: capColor(hue).multiplyScalar(1.4),
+            transparent: true,
+            opacity: 0,
+            toneMapped: false,
+          }),
+        );
+        pl.position.set(x, 0.26, z);
+        g.add(pl);
+        sc.add(g);
+        return (o) => g.children.forEach((c) => (c.material.opacity = o));
+      }
+      function scar(sc, x, z) {
+        const s = new THREE.Mesh(
+          new THREE.PlaneGeometry(3.6 * U, 2.6 * U),
+          new THREE.MeshBasicMaterial({ color: 0x1e2028, transparent: true, opacity: 0 }),
+        );
+        s.rotation.x = -Math.PI / 2;
+        s.position.set(x, 0.26, z);
+        sc.add(s);
+        return s;
+      }
+
+      function world(sc) {
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), std(hsl(228, 0.08, 0.24)));
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.3;
+        ground.receiveShadow = true;
+        sc.add(ground);
+        const plate = (x, hue) => {
+          const p = new THREE.Mesh(
+            new THREE.BoxGeometry(6.4 * U, 0.3, 7 * U),
+            std(hsl(hue, 0.18, 0.3)),
+          );
+          p.position.set(x, -0.15, 0);
+          p.receiveShadow = p.castShadow = true;
+          sc.add(p);
+        };
+        const ax = -GAP / 2 - 3.2,
+          bx = GAP / 2 + 3.2;
+        plate(ax, HUE_A);
+        plate(bx, HUE_B);
+        const platform = (x, z, hue) => {
+          const p = new THREE.Mesh(
+            new THREE.BoxGeometry(3.6 * U, 0.25, 2.6 * U),
+            std(hsl(hue, 0.22, 0.36)),
+          );
+          p.position.set(x, 0.12, z);
+          p.receiveShadow = p.castShadow = true;
+          sc.add(p);
+          return p;
+        };
+        const pa = platform(ax, 0, HUE_A);
+        [
+          [0, -1.6, 1.0],
+          [1, -1.6, 1.3],
+          [2, -1.6, 0.9],
+        ].forEach(([i, j, h]) => tower(sc, ax + (i - 1) * U, (j - 1) * U, h, HUE_A));
+        [
+          [0, -1.6, 1.2],
+          [1, -1.6, 0.8],
+          [2, -1.6, 1.4],
+        ].forEach(([i, j, h]) => tower(sc, bx + (i - 1) * U, (j - 1) * U, h, HUE_B));
+        const cells = [
+          [0, 0, 1.4],
+          [1, 0, 2.2],
+          [2, 0, 1.0],
+          [0, 1, 1.7],
+          [1, 1, 1.1],
+          [2, 1, 1.9],
+        ];
+        const ts = cells.map(([i, j, h]) => tower(sc, ax + (i - 1) * U, (j - 0.5) * U, h, HUE_A));
+        const from = { x: ax, z: 0 },
+          to = { x: bx, z: 0.5 * U };
+        const s = scar(sc, ax, 0);
+        const fly = (c) => {
+          const k = clamp01((c - FLIGHT[0]) / (FLIGHT[1] - FLIGHT[0]));
+          const e = easeInOut(k);
+          const dx = (to.x - from.x) * e,
+            dz = (to.z - from.z) * e,
+            y = 4 * Math.sin(Math.PI * k);
+          pa.position.set(from.x + dx, 0.12 + y, from.z + dz);
+          pa.material.color.copy(hsl(HUE_A, 0.22, 0.36)).lerp(hsl(HUE_B, 0.22, 0.36), e);
+          ts.forEach((t) => {
+            t.place(t.x + dx, t.z + dz, 0.25 + y);
+            t.m.material.color.copy(towerColor(HUE_A)).lerp(towerColor(HUE_B), e);
+            t.cap.material.color.copy(capColor(HUE_A)).lerp(capColor(HUE_B), e);
+          });
+          s.material.opacity = c > FLIGHT[0] ? 0.9 * (1 - clamp01((c - FLIGHT[0]) / 10)) : 0;
+          return k;
+        };
+        return { cells, ts, from, to, fly, pa };
+      }
+
+      const options = [
+        {
+          key: '1',
+          title: 'One dashed arc per file, 10 s',
+          rec: '',
+          cur: 'current',
+          notes:
+            '<b>What the product mockup does now.</b> Six files, six lines, constant weight for ten seconds. A diagram annotation: the only static, dashed, hairline element on the map.',
+          build: (sc, w) => {
+            const ls = w.cells.map(([i, j]) =>
+              dashed(
+                sc,
+                arcPts(
+                  w.from.x + (i - 1) * U,
+                  w.from.z + (j - 0.5) * U,
+                  w.to.x + (i - 1) * U,
+                  w.to.z + (j - 0.5) * U,
+                  4,
+                ),
+                0xdfe6f5,
+              ),
+            );
+            return (c, k) =>
+              ls.forEach(
+                (l) =>
+                  (l.material.opacity = k >= 1 ? 0.6 * (1 - clamp01((c - FLIGHT[1]) / 10)) : 0),
+              );
+          },
+        },
+        {
+          key: '2',
+          title: 'One dashed arc per folder, 10 s',
+          rec: '',
+          notes:
+            '<b>The clutter fixed, the vocabulary not.</b> One line from platform to platform. Still a drafting mark that sits there.',
+          build: (sc, w) => {
+            const l = dashed(sc, arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 4), 0xdfe6f5);
+            return (c, k) =>
+              (l.material.opacity = k >= 1 ? 0.6 * (1 - clamp01((c - FLIGHT[1]) / 10)) : 0);
+          },
+        },
+        {
+          key: '3',
+          title: 'Ribbon in flight, fades in 1.5 s',
+          rec: '',
+          notes:
+            '<b>The agent ribbon, borrowed.</b> One additive ribbon grows behind the platform along the arc, brightest at the head, and is gone 1.5 s after landing. The "that way" read at the moment it is needed; nothing afterwards but the scar.',
+          build: (sc, w) => {
+            const r = ribbon(sc, arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 4), AGENT);
+            return (c, k) => r.set(k, k > 0 ? 1 - clamp01((c - FLIGHT[1]) / 1.5) : 0);
+          },
+        },
+        {
+          key: '4',
+          title: 'Ribbon + afterimage at the origin',
+          rec: 'recommended',
+          notes:
+            '<b>3 plus a ghost of what stood there.</b> The district\'s outline stays on the scar and fades over 8 s. "Something was here, and it was this shape." Direction after the ribbon is what hover and the timeline are for.',
+          build: (sc, w) => {
+            const r = ribbon(sc, arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 4), AGENT);
+            const ghost = afterimage(sc, w.cells, w.from.x, w.from.z, HUE_A);
+            return (c, k) => {
+              r.set(k, k > 0 ? 1 - clamp01((c - FLIGHT[1]) / 1.5) : 0);
+              ghost(k > 0.1 ? 0.55 * (1 - clamp01((c - FLIGHT[0] - 0.2) / 8)) : 0);
+            };
+          },
+        },
+        {
+          key: '5',
+          title: 'Afterimage only',
+          rec: '',
+          notes:
+            '<b>No trail at all</b>, just the ghost at the origin. Quietest; loses the direction entirely if you were not looking during the second it flew.',
+          build: (sc, w) => {
+            const ghost = afterimage(sc, w.cells, w.from.x, w.from.z, HUE_A);
+            return (c, k) => ghost(k > 0.1 ? 0.55 * (1 - clamp01((c - FLIGHT[0] - 0.2) / 8)) : 0);
+          },
+        },
+        {
+          key: '6',
+          title: 'Ribbon + afterimage + hover arc',
+          rec: 'recommended, with 4',
+          notes:
+            '<b>4, and on hover of the landed district a thin arc back to its origin</b> for a minute after the move. Shown here as if hovered from second 5 to 8. Information kept, ambient clutter not.',
+          build: (sc, w) => {
+            const r = ribbon(sc, arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 4), AGENT);
+            const ghost = afterimage(sc, w.cells, w.from.x, w.from.z, HUE_A);
+            const hover = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(
+                arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 4),
+              ),
+              new THREE.LineBasicMaterial({
+                color: AGENT.clone().multiplyScalar(1.6),
+                transparent: true,
+                opacity: 0,
+                toneMapped: false,
+              }),
+            );
+            sc.add(hover);
+            const outline = new THREE.LineSegments(
+              new THREE.EdgesGeometry(new THREE.BoxGeometry(3.6 * U, 0.02, 2.6 * U)),
+              new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }),
+            );
+            outline.position.set(w.to.x, 0.27, w.to.z);
+            sc.add(outline);
+            return (c, k) => {
+              r.set(k, k > 0 ? 1 - clamp01((c - FLIGHT[1]) / 1.5) : 0);
+              ghost(k > 0.1 ? 0.55 * (1 - clamp01((c - FLIGHT[0] - 0.2) / 8)) : 0);
+              const h = c > 5 && c < 8 ? 1 : 0;
+              hover.material.opacity = 0.7 * h;
+              outline.material.opacity = 0.8 * h;
+            };
+          },
+        },
+      ];
+
+      function build(opt) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2><span>${opt.key} · ${opt.title}</span><span class="${opt.cur ? 'cur' : 'rec'}">${opt.cur ?? opt.rec}</span></h2><div class="view"><canvas></canvas><div class="clock"></div></div><div class="notes">${opt.notes}</div>`;
+        document.getElementById('board').appendChild(card);
+        const canvas = card.querySelector('canvas'),
+          view = card.querySelector('.view'),
+          clock = card.querySelector('.clock');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d2f38);
+        const camera = new THREE.PerspectiveCamera(30, 1.5, 0.1, 200);
+        const ELEV = THREE.MathUtils.degToRad(38),
+          YAW = THREE.MathUtils.degToRad(15);
+        camera.position
+          .set(Math.cos(ELEV) * Math.sin(YAW), Math.sin(ELEV), Math.cos(ELEV) * Math.cos(YAW))
+          .multiplyScalar(30);
+        camera.lookAt(0, 0.8, 0);
+        scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const k = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        k.position.set(-12, 14, 9);
+        k.castShadow = true;
+        k.shadow.mapSize.set(1024, 1024);
+        k.shadow.radius = 5;
+        k.shadow.bias = -0.0004;
+        const c = k.shadow.camera;
+        c.left = c.bottom = -14;
+        c.right = c.top = 14;
+        c.far = 60;
+        scene.add(k);
+        const r = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+        r.position.set(10, 6, -8);
+        scene.add(r);
+        const w = world(scene);
+        const tick = opt.build(scene, w);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(400, 260), 0.5, 0.3, 1.0));
+        composer.addPass(new OutputPass());
+        composer.addPass(new SMAAPass());
+        function resize() {
+          const cw = view.clientWidth,
+            ch = view.clientHeight;
+          renderer.setSize(cw, ch, false);
+          composer.setSize(cw, ch);
+          camera.aspect = cw / ch;
+          camera.updateProjectionMatrix();
+        }
+        new ResizeObserver(resize).observe(view);
+        resize();
+        const t0 = performance.now();
+        renderer.setAnimationLoop((ts) => {
+          const cyc = ((ts - t0) / 1000) % CYCLE;
+          const kk = w.fly(cyc);
+          tick(cyc, kk);
+          clock.textContent = `t + ${cyc.toFixed(1)} s`;
+          composer.render();
+        });
+      }
+      options.forEach(build);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata move board: how a file or a folder travels</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #101216;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 20px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 14px;
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      h1 small {
+        color: #7c879f;
+        font-weight: 400;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .board.four {
+        grid-template-columns: repeat(4, 1fr);
+      }
+      .card {
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 11px;
+        margin: 0;
+        padding: 9px 11px;
+        color: #dfe6f5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-bottom: 1px solid #1c2130;
+        display: flex;
+        justify-content: space-between;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .view {
+        aspect-ratio: 1.25 / 1;
+        position: relative;
+      }
+      .view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .notes {
+        padding: 10px 11px 12px;
+        color: #9aa5bd;
+        font-size: 11.5px;
+      }
+      .notes b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Single file
+      <small
+        >(one tower crosses the avenue from the left country to the right one; replays every 4 s;
+        dusk)</small
+      >
+    </h1>
+    <div class="board" id="single"></div>
+    <h1>Folder <small>(a six-file district crosses; the destination country has room)</small></h1>
+    <div class="board four" id="folder"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(42, 1, 0.6);
+      const HUE_A = 212,
+        HUE_B = 28;
+      const std = (color) =>
+        new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+      const add = (color, mult, opacity = 1) =>
+        new THREE.MeshBasicMaterial({
+          color: color.clone().multiplyScalar(mult),
+          transparent: true,
+          opacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+      const easeInOut = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2),
+        easeOut = (k) => 1 - Math.pow(1 - k, 3),
+        easeIn = (k) => k * k * k;
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const U = 1.15,
+        CYCLE = 4,
+        GAP = 9;
+      const tg = new THREE.BoxGeometry(0.8, 1, 0.8);
+      tg.translate(0, 0.5, 0);
+      const towerColor = (hue) => hsl(hue, 0.26, 0.5),
+        capColor = (hue) => hsl(hue, 0.45, 0.58);
+      function tower(sc, x, z, h, hue) {
+        const m = new THREE.Mesh(tg, std(towerColor(hue)));
+        m.position.set(x, 0.25, z);
+        m.scale.y = h;
+        m.castShadow = m.receiveShadow = true;
+        sc.add(m);
+        const cap = new THREE.Mesh(
+          new THREE.BoxGeometry(0.84, 0.06, 0.84),
+          new THREE.MeshBasicMaterial({ color: capColor(hue), toneMapped: false }),
+        );
+        cap.position.set(x, 0.25 + h, z);
+        sc.add(cap);
+        return {
+          m,
+          cap,
+          h,
+          x,
+          z,
+          place(px, pz, py = 0.25, sy = 1, sxz = 1) {
+            m.position.set(px, py, pz);
+            m.scale.set(sxz, h * sy, sxz);
+            cap.position.set(px, py + h * sy, pz);
+            cap.scale.set(sxz, 1, sxz);
+          },
+        };
+      }
+      function scar(sc, x, z, w = 0.9, d = 0.9) {
+        const s = new THREE.Mesh(
+          new THREE.PlaneGeometry(w, d),
+          new THREE.MeshBasicMaterial({ color: 0x1e2028, transparent: true, opacity: 0 }),
+        );
+        s.rotation.x = -Math.PI / 2;
+        s.position.set(x, 0.26, z);
+        sc.add(s);
+        return s;
+      }
+      function ripple(sc) {
+        const g = new THREE.RingGeometry(0.02, 1, 48).rotateX(-Math.PI / 2);
+        const m = new THREE.Mesh(
+          g,
+          new THREE.ShaderMaterial({
+            uniforms: {
+              uColor: { value: new THREE.Color(0.8, 0.85, 1).multiplyScalar(1.1) },
+              uR: { value: -1 },
+              uK: { value: 0 },
+            },
+            vertexShader:
+              'varying vec2 vUv; varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+            fragmentShader:
+              'uniform vec3 uColor; uniform float uR; uniform float uK; varying vec3 vPos; void main(){ float d = length(vPos.xz); if (uR < 0.0) discard; float front = 1.0 - smoothstep(uR - 0.03, uR, d); float tail = smoothstep(uR - 0.35, uR, d); float a = front * tail * pow(max(0.0, 1.0 - uR), 1.8) * (1.0 - uK); gl_FragColor = vec4(uColor * a, 1.0); }',
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          }),
+        );
+        m.scale.setScalar(1.4);
+        sc.add(m);
+        return {
+          m,
+          at(x, z, k) {
+            m.position.set(x, 0.3, z);
+            m.material.uniforms.uR.value = k >= 0 && k < 1 ? easeOut(k) : -1;
+            m.material.uniforms.uK.value = clamp01(k * k);
+          },
+        };
+      }
+      function dashed(sc, pts, color) {
+        const l = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineDashedMaterial({
+            color,
+            dashSize: 0.4,
+            gapSize: 0.25,
+            transparent: true,
+            opacity: 0,
+            toneMapped: false,
+          }),
+        );
+        l.computeLineDistances();
+        sc.add(l);
+        return l;
+      }
+      function arcPts(x0, z0, x1, z1, apex, n = 24) {
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const k = i / n;
+          pts.push(
+            new THREE.Vector3(
+              x0 + (x1 - x0) * k,
+              0.3 + apex * Math.sin(Math.PI * k),
+              z0 + (z1 - z0) * k,
+            ),
+          );
+        }
+        return pts;
+      }
+      function sparks(sc, n, color) {
+        const pos = new Float32Array(n * 3).fill(-100);
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const m = new THREE.Points(
+          g,
+          new THREE.PointsMaterial({
+            color: color.clone().multiplyScalar(6),
+            size: 3,
+            sizeAttenuation: false,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          }),
+        );
+        sc.add(m);
+        return { m, pos, g, n };
+      }
+      function ghost(sc, h, hue) {
+        const e = new THREE.LineSegments(
+          new THREE.EdgesGeometry(tg),
+          new THREE.LineBasicMaterial({
+            color: capColor(hue).multiplyScalar(1.6),
+            transparent: true,
+            opacity: 0,
+            toneMapped: false,
+          }),
+        );
+        e.scale.y = h;
+        sc.add(e);
+        return e;
+      }
+
+      // scene: two countries across an avenue, a district in each
+      function world(sc, folder) {
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), std(hsl(228, 0.08, 0.24)));
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.3;
+        ground.receiveShadow = true;
+        sc.add(ground);
+        const plate = (x, hue, w) => {
+          const p = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, 7 * U), std(hsl(hue, 0.18, 0.3)));
+          p.position.set(x, -0.15, 0);
+          p.receiveShadow = p.castShadow = true;
+          sc.add(p);
+        };
+        plate(-GAP / 2 - 3.2, HUE_A, 6.4 * U);
+        plate(GAP / 2 + 3.2, HUE_B, 6.4 * U);
+        const platform = (x, z, w, d, hue) => {
+          const p = new THREE.Mesh(new THREE.BoxGeometry(w, 0.25, d), std(hsl(hue, 0.22, 0.36)));
+          p.position.set(x, 0.12, z);
+          p.receiveShadow = p.castShadow = true;
+          sc.add(p);
+          return p;
+        };
+        const ax = -GAP / 2 - 3.2,
+          bx = GAP / 2 + 3.2;
+        const fill = (cx, hue, cells) =>
+          cells.forEach(([i, j, h]) => tower(sc, cx + (i - 1) * U, (j - 1) * U, h, hue));
+        if (!folder) {
+          platform(ax, 0, 3.6 * U, 3.6 * U, HUE_A);
+          platform(bx, 0, 3.6 * U, 3.6 * U, HUE_B);
+          fill(ax, HUE_A, [
+            [0, 0, 1.2],
+            [1, 0, 1.6],
+            [2, 0, 0.9],
+            [0, 1, 1.4],
+            [2, 1, 1.1],
+            [0, 2, 1.0],
+            [1, 2, 1.9],
+            [2, 2, 1.3],
+          ]);
+          fill(bx, HUE_B, [
+            [0, 0, 1.1],
+            [1, 0, 0.8],
+            [2, 0, 1.5],
+            [0, 1, 1.3],
+            [1, 1, 1.0],
+            [0, 2, 1.6],
+            [1, 2, 1.2],
+          ]);
+          return { from: { x: ax + U, z: 0, h: 2.4 }, to: { x: bx + U, z: U, h: 2.4 } };
+        }
+        const pa = platform(ax, 0, 3.6 * U, 2.6 * U, HUE_A),
+          pb = platform(bx, 0.5 * U, 3.6 * U, 2.6 * U, HUE_B);
+        pb.visible = false;
+        fill(ax, HUE_A, [
+          [0, -1.6, 1.0],
+          [1, -1.6, 1.3],
+          [2, -1.6, 0.9],
+        ]);
+        fill(bx, HUE_B, [
+          [0, -1.6, 1.2],
+          [1, -1.6, 0.8],
+          [2, -1.6, 1.4],
+        ]);
+        const cells = [
+          [0, 0, 1.4],
+          [1, 0, 2.2],
+          [2, 0, 1.0],
+          [0, 1, 1.7],
+          [1, 1, 1.1],
+          [2, 1, 1.9],
+        ];
+        return { pa, pb, cells, from: { x: ax, z: 0 }, to: { x: bx, z: 0.5 * U } };
+      }
+
+      const single = [
+        {
+          key: '1',
+          title: 'Arc',
+          rec: '',
+          notes:
+            '<b>Picked up, parabolic flight, squash on landing</b>; scar at the origin, dashed memory arc after. Honest and physical. From Overview the tower in flight is three pixels: only the memory arc reads.',
+          build: (sc, w) => {
+            const t = tower(sc, w.from.x, w.from.z, w.from.h, HUE_A);
+            const s = scar(sc, w.from.x, w.from.z);
+            const r = ripple(sc);
+            const mem = dashed(sc, arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 3), 0xdfe6f5);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 0.8);
+              const e = easeInOut(k);
+              const x = w.from.x + (w.to.x - w.from.x) * e,
+                z = w.from.z + (w.to.z - w.from.z) * e;
+              const lift = k < 0.08 ? -0.06 * Math.sin((k / 0.08) * Math.PI) : 0;
+              const sy =
+                1 +
+                0.25 * Math.abs(Math.cos(Math.PI * k)) * (k > 0.08 ? 1 : 0) -
+                (k > 0.9 && k < 1 ? 0.3 : 0);
+              t.place(x, z, 0.25 + 3 * Math.sin(Math.PI * k) + lift, sy, 1 / Math.sqrt(sy));
+              t.m.material.color.copy(towerColor(HUE_A)).lerp(towerColor(HUE_B), e);
+              t.cap.material.color.copy(capColor(HUE_A)).lerp(capColor(HUE_B), e);
+              s.material.opacity = c > 0.5 ? 0.9 * (1 - (c - 0.5) / 3.5) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.3) / 0.6);
+              mem.material.opacity = c > 1.3 ? 0.6 * (1 - (c - 1.3) / 2.7) : 0;
+            };
+          },
+        },
+        {
+          key: '2',
+          title: 'Arc with a comet head',
+          rec: 'recommended',
+          notes:
+            "<b>The same flight led by a bright streak</b> with a short tail. The streak is the Overview read; the tower keeps its weight. In the agent's hue when attributed, neutral otherwise.",
+          build: (sc, w) => {
+            const t = tower(sc, w.from.x, w.from.z, w.from.h, HUE_A);
+            const s = scar(sc, w.from.x, w.from.z);
+            const r = ripple(sc);
+            const mem = dashed(
+              sc,
+              arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 3),
+              AGENT.clone().multiplyScalar(1.5),
+            );
+            const head = new THREE.Mesh(
+              new THREE.SphereGeometry(0.12, 10, 10),
+              new THREE.MeshBasicMaterial({
+                color: AGENT.clone().multiplyScalar(30),
+                toneMapped: false,
+              }),
+            );
+            sc.add(head);
+            const light = new THREE.PointLight(AGENT, 6, 6, 1.7);
+            sc.add(light);
+            const tail = sparks(sc, 14, AGENT);
+            const pts = arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 3, 60);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 0.8);
+              const e = easeInOut(k);
+              const x = w.from.x + (w.to.x - w.from.x) * e,
+                z = w.from.z + (w.to.z - w.from.z) * e;
+              const y = 0.25 + 3 * Math.sin(Math.PI * k);
+              const sy = 1 + 0.25 * Math.abs(Math.cos(Math.PI * k)) - (k > 0.9 && k < 1 ? 0.3 : 0);
+              t.place(x, z, y, sy, 1 / Math.sqrt(sy));
+              t.m.material.color.copy(towerColor(HUE_A)).lerp(towerColor(HUE_B), e);
+              t.cap.material.color.copy(capColor(HUE_A)).lerp(capColor(HUE_B), e);
+              const fl = k > 0 && k < 1;
+              head.visible = light.visible = fl;
+              head.position.set(x, y + w.from.h * sy + 0.25, z);
+              light.position.copy(head.position);
+              for (let i = 0; i < tail.n; i++) {
+                const kk = Math.max(0, e - i * 0.012);
+                const p = pts[Math.round(kk * 60)];
+                tail.pos[i * 3] = fl ? p.x : -100;
+                tail.pos[i * 3 + 1] = p.y + w.from.h + 0.2;
+                tail.pos[i * 3 + 2] = p.z;
+              }
+              tail.g.attributes.position.needsUpdate = true;
+              tail.m.material.opacity = fl ? 1 : 0;
+              s.material.opacity = c > 0.5 ? 0.9 * (1 - (c - 0.5) / 3.5) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.3) / 0.6);
+              mem.material.opacity = c > 1.3 ? 0.6 * (1 - (c - 1.3) / 2.7) : 0;
+            };
+          },
+        },
+        {
+          key: '3',
+          title: 'Derez and rerez',
+          rec: 'stretch',
+          notes:
+            '<b>The tower dissolves upward into a stream</b>, the stream crosses, the tower reassembles bottom-up. The most game-like; the stream is bright and directional. Heaviest to build, and the origin is empty for a beat before the destination appears.',
+          build: (sc, w) => {
+            const t = tower(sc, w.from.x, w.from.z, w.from.h, HUE_A);
+            const s = scar(sc, w.from.x, w.from.z);
+            const r = ripple(sc);
+            const st = sparks(sc, 40, AGENT);
+            const pts = arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 2.5, 80);
+            const light = new THREE.PointLight(AGENT, 6, 6, 1.7);
+            sc.add(light);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 1.1);
+              let vis = 1,
+                ph = 'idle';
+              if (k > 0 && k < 0.3) {
+                ph = 'derez';
+                vis = 1 - k / 0.3;
+                t.place(w.from.x, w.from.z, 0.25, vis, 1);
+                t.m.material.color.copy(towerColor(HUE_A)).lerp(AGENT, 1 - vis);
+              } else if (k >= 0.3 && k < 0.7) {
+                ph = 'stream';
+                t.place(w.from.x, w.from.z, 0.25, 0.001, 1);
+              } else if (k >= 0.7 && k < 1) {
+                ph = 'rerez';
+                vis = (k - 0.7) / 0.3;
+                t.place(w.to.x, w.to.z, 0.25, vis, 1);
+                t.m.material.color.copy(AGENT).lerp(towerColor(HUE_B), vis);
+                t.cap.material.color.copy(capColor(HUE_B));
+              } else if (k >= 1) t.place(w.to.x, w.to.z, 0.25, 1, 1);
+              else {
+                t.place(w.from.x, w.from.z, 0.25, 1, 1);
+                t.m.material.color.copy(towerColor(HUE_A));
+                t.cap.material.color.copy(capColor(HUE_A));
+              }
+              for (let i = 0; i < st.n; i++) {
+                let px = -100,
+                  py = 0,
+                  pz = 0;
+                const o = i / st.n;
+                if (ph === 'derez') {
+                  px = w.from.x + (Math.random() - 0.5) * 0.6;
+                  py = 0.25 + w.from.h * (1 - k / 0.3) + o * 1.5;
+                  pz = w.from.z + (Math.random() - 0.5) * 0.6;
+                } else if (ph === 'stream') {
+                  const kk = clamp01((k - 0.3) / 0.4 - o * 0.25 + 0.25);
+                  const p = pts[Math.round(kk * 80)];
+                  px = p.x;
+                  py = p.y + 0.8 + (Math.random() - 0.5) * 0.3;
+                  pz = p.z + (Math.random() - 0.5) * 0.3;
+                } else if (ph === 'rerez') {
+                  px = w.to.x + (Math.random() - 0.5) * 0.6;
+                  py = 0.25 + w.to.h * ((k - 0.7) / 0.3) + o * 1.2;
+                  pz = w.to.z + (Math.random() - 0.5) * 0.6;
+                }
+                st.pos[i * 3] = px;
+                st.pos[i * 3 + 1] = py;
+                st.pos[i * 3 + 2] = pz;
+              }
+              st.g.attributes.position.needsUpdate = true;
+              light.visible = ph === 'stream';
+              if (ph === 'stream') {
+                const p = pts[Math.round(clamp01((k - 0.3) / 0.4) * 80)];
+                light.position.set(p.x, p.y + 0.8, p.z);
+              }
+              s.material.opacity = c > 0.8 ? 0.9 * (1 - (c - 0.8) / 3.2) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.6) / 0.6);
+            };
+          },
+        },
+        {
+          key: '4',
+          title: 'Ghost, then fill',
+          rec: '',
+          notes:
+            '<b>A ghost outline appears at the destination first</b>, the origin sinks, a link line connects them, the ghost fills in. Anticipation built in, the blueprint idea players already read. Calmer, less satisfying; the ghost is a new element.',
+          build: (sc, w) => {
+            const t = tower(sc, w.from.x, w.from.z, w.from.h, HUE_A);
+            const s = scar(sc, w.from.x, w.from.z);
+            const g = ghost(sc, w.to.h, HUE_B);
+            g.position.set(w.to.x, 0.25, w.to.z);
+            const t2 = tower(sc, w.to.x, w.to.z, w.to.h, HUE_B);
+            const link = dashed(
+              sc,
+              [new THREE.Vector3(w.from.x, 0.3, w.from.z), new THREE.Vector3(w.to.x, 0.3, w.to.z)],
+              0xdfe6f5,
+            );
+            const r = ripple(sc);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 1.2);
+              g.material.opacity = k > 0 && k < 0.85 ? Math.min(1, k / 0.2) * 0.9 : 0;
+              link.material.opacity = k > 0.1 && k < 0.9 ? 0.6 : 0;
+              const sink = clamp01((k - 0.25) / 0.35);
+              t.place(w.from.x, w.from.z, 0.25 - w.from.h * sink, Math.max(0.001, 1 - sink), 1);
+              t.m.visible = sink < 1;
+              const fillK = clamp01((k - 0.65) / 0.3);
+              t2.place(w.to.x, w.to.z, 0.25, Math.max(0.001, fillK), 1);
+              t2.m.visible = t2.cap.visible = fillK > 0;
+              s.material.opacity = sink > 0 ? 0.9 * sink * (1 - clamp01((c - 1.3) / 2.7)) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.65) / 0.6);
+              if (c < 0.5) {
+                t.place(w.from.x, w.from.z);
+                t.m.visible = true;
+                t2.m.visible = t2.cap.visible = false;
+              }
+            };
+          },
+        },
+        {
+          key: '5',
+          title: 'Sink and surface',
+          rec: '',
+          notes:
+            '<b>The tower sinks into its plate, a glow travels under the ground, it surfaces at the destination.</b> Charming and nothing crosses over other towers, but the glow is hidden by plates most of the way and direction is lost exactly when it matters.',
+          build: (sc, w) => {
+            const t = tower(sc, w.from.x, w.from.z, w.from.h, HUE_A);
+            const s = scar(sc, w.from.x, w.from.z);
+            const r = ripple(sc);
+            const glow = new THREE.Mesh(
+              new THREE.CircleGeometry(0.5, 24).rotateX(-Math.PI / 2),
+              add(AGENT, 1.5, 0.6),
+            );
+            sc.add(glow);
+            const light = new THREE.PointLight(AGENT, 5, 5, 1.7);
+            sc.add(light);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 1.1);
+              const sink = clamp01(k / 0.25),
+                travel = clamp01((k - 0.25) / 0.5),
+                rise = clamp01((k - 0.75) / 0.25);
+              if (k <= 0) {
+                t.place(w.from.x, w.from.z);
+                t.m.material.color.copy(towerColor(HUE_A));
+                t.cap.material.color.copy(capColor(HUE_A));
+              } else if (rise > 0) {
+                t.place(w.to.x, w.to.z, 0.25 - w.to.h * (1 - rise), 1, 1);
+                t.m.material.color.copy(towerColor(HUE_B));
+                t.cap.material.color.copy(capColor(HUE_B));
+              } else t.place(w.from.x, w.from.z, 0.25 - w.from.h * sink, 1, 1);
+              const tx = w.from.x + (w.to.x - w.from.x) * easeInOut(travel),
+                tz = w.from.z + (w.to.z - w.from.z) * easeInOut(travel);
+              glow.visible = light.visible = travel > 0 && travel < 1;
+              glow.position.set(tx, 0.005, tz);
+              light.position.set(tx, 0.4, tz);
+              s.material.opacity = sink > 0 ? 0.9 * sink * (1 - clamp01((c - 1.3) / 2.7)) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.6) / 0.6);
+            };
+          },
+        },
+      ];
+      const folder = [
+        {
+          key: 'a',
+          title: 'District as one body',
+          rec: '',
+          notes:
+            '<b>Platform and towers lift and fly together.</b> The clearest statement of "the folder moved"; also the only place on the panel where a large opaque thing crosses over other things.',
+          build: (sc, w) => {
+            const ts = w.cells.map(([i, j, h]) =>
+              tower(sc, w.from.x + (i - 1) * U, w.from.z + (j - 0.5) * U, h, HUE_A),
+            );
+            const s = scar(sc, w.from.x, w.from.z, 3.6 * U, 2.6 * U);
+            const r = ripple(sc);
+            r.m.scale.setScalar(3);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 0.9);
+              const e = easeInOut(k);
+              const dx = (w.to.x - w.from.x) * e,
+                dz = (w.to.z - w.from.z) * e,
+                y = 4 * Math.sin(Math.PI * k);
+              w.pa.position.set(w.from.x + dx, 0.12 + y, w.from.z + dz);
+              w.pa.material.color.copy(hsl(HUE_A, 0.22, 0.36)).lerp(hsl(HUE_B, 0.22, 0.36), e);
+              ts.forEach((t, n) => {
+                t.place(t.x + dx, t.z + dz, 0.25 + y);
+                t.m.material.color.copy(towerColor(HUE_A)).lerp(towerColor(HUE_B), e);
+                t.cap.material.color.copy(capColor(HUE_A)).lerp(capColor(HUE_B), e);
+              });
+              s.material.opacity = c > 0.5 ? 0.9 * (1 - (c - 0.5) / 3.5) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.4) / 0.7);
+            };
+          },
+        },
+        {
+          key: 'b',
+          title: 'Derez wave',
+          rec: 'recommended',
+          notes:
+            '<b>Towers derez in a wave across the district</b>, one stream crosses, they rerez in the same order. Everything stays on the ground; a fifty-file burst becomes one event with fifty beats inside it.',
+          build: (sc, w) => {
+            const ts = w.cells.map(([i, j, h]) =>
+              tower(sc, w.from.x + (i - 1) * U, w.from.z + (j - 0.5) * U, h, HUE_A),
+            );
+            const dest = w.cells.map(([i, j]) => [w.to.x + (i - 1) * U, w.to.z + (j - 0.5) * U]);
+            const s = scar(sc, w.from.x, w.from.z, 3.6 * U, 2.6 * U);
+            const st = sparks(sc, 60, AGENT);
+            const pts = arcPts(w.from.x, w.from.z, w.to.x, w.to.z, 2.5, 80);
+            const r = ripple(sc);
+            r.m.scale.setScalar(3);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 1.6);
+              w.pb.visible = k > 0.55;
+              w.pa.visible = k < 0.45;
+              ts.forEach((t, n) => {
+                const off = n * 0.05;
+                const dz = clamp01((k - off) / 0.15),
+                  rz = clamp01((k - 0.6 - off) / 0.15);
+                if (rz > 0) {
+                  t.place(dest[n][0], dest[n][1], 0.25, Math.max(0.001, rz), 1);
+                  t.m.material.color.copy(AGENT).lerp(towerColor(HUE_B), rz);
+                  t.cap.material.color.copy(capColor(HUE_B));
+                } else if (k <= 0) {
+                  t.place(t.x, t.z);
+                  t.m.material.color.copy(towerColor(HUE_A));
+                  t.cap.material.color.copy(capColor(HUE_A));
+                } else {
+                  t.place(t.x, t.z, 0.25, Math.max(0.001, 1 - dz), 1);
+                  t.m.material.color.copy(towerColor(HUE_A)).lerp(AGENT, dz);
+                }
+              });
+              for (let i = 0; i < st.n; i++) {
+                const o = i / st.n;
+                const kk = (k - 0.2) / 0.5 - o * 0.3 + 0.15;
+                let px = -100,
+                  py = 0,
+                  pz = 0;
+                if (kk > 0 && kk < 1 && k > 0) {
+                  const p = pts[Math.round(kk * 80)];
+                  px = p.x + (Math.random() - 0.5) * 1.2;
+                  py = p.y + 0.8 + (Math.random() - 0.5) * 0.4;
+                  pz = p.z + (Math.random() - 0.5) * 1.2;
+                }
+                st.pos[i * 3] = px;
+                st.pos[i * 3 + 1] = py;
+                st.pos[i * 3 + 2] = pz;
+              }
+              st.g.attributes.position.needsUpdate = true;
+              s.material.opacity = k > 0.3 ? 0.9 * (1 - clamp01((c - 1.3) / 2.7)) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.7) / 0.7);
+            };
+          },
+        },
+        {
+          key: 'c',
+          title: 'Ghost district, then cascade',
+          rec: '',
+          notes:
+            "<b>The district's ghost appears at the destination</b>, then towers hop over one by one in a fast stagger. Best on slow feeds; the cascade is the flock with a target to aim at.",
+          build: (sc, w) => {
+            const ts = w.cells.map(([i, j, h]) =>
+              tower(sc, w.from.x + (i - 1) * U, w.from.z + (j - 0.5) * U, h, HUE_A),
+            );
+            const dest = w.cells.map(([i, j]) => [w.to.x + (i - 1) * U, w.to.z + (j - 0.5) * U]);
+            const gs = w.cells.map(([i, j, h]) => {
+              const g = ghost(sc, h, HUE_B);
+              g.position.set(w.to.x + (i - 1) * U, 0.25, w.to.z + (j - 0.5) * U);
+              return g;
+            });
+            const s = scar(sc, w.from.x, w.from.z, 3.6 * U, 2.6 * U);
+            const r = ripple(sc);
+            r.m.scale.setScalar(3);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 1.6);
+              w.pb.visible = k > 0.05;
+              w.pa.visible = k < 0.9;
+              gs.forEach((g, n) => {
+                g.material.opacity =
+                  k > 0.02 && k < 0.35 + n * 0.07 + 0.25 ? 0.8 * Math.min(1, (k - 0.02) / 0.1) : 0;
+              });
+              ts.forEach((t, n) => {
+                const kk = clamp01((k - 0.35 - n * 0.07) / 0.25);
+                const e = easeInOut(kk);
+                const x = t.x + (dest[n][0] - t.x) * e,
+                  z = t.z + (dest[n][1] - t.z) * e;
+                const sy = 1 + 0.25 * Math.abs(Math.cos(Math.PI * kk)) * (kk > 0 && kk < 1 ? 1 : 0);
+                t.place(x, z, 0.25 + 2.5 * Math.sin(Math.PI * kk), sy, 1 / Math.sqrt(sy));
+                t.m.material.color.copy(towerColor(HUE_A)).lerp(towerColor(HUE_B), e);
+                t.cap.material.color.copy(capColor(HUE_A)).lerp(capColor(HUE_B), e);
+              });
+              s.material.opacity = k > 0.5 ? 0.9 * (1 - clamp01((c - 1.6) / 2.4)) : 0;
+              r.at(w.to.x, w.to.z, (c - 2.05) / 0.7);
+            };
+          },
+        },
+        {
+          key: 'd',
+          title: 'Platform slides',
+          rec: '',
+          notes:
+            '<b>The platform and its towers slide along the ground.</b> "It shifted over." Only works within a country: across an avenue it drives through other plates, as here.',
+          build: (sc, w) => {
+            const ts = w.cells.map(([i, j, h]) =>
+              tower(sc, w.from.x + (i - 1) * U, w.from.z + (j - 0.5) * U, h, HUE_A),
+            );
+            const s = scar(sc, w.from.x, w.from.z, 3.6 * U, 2.6 * U);
+            const r = ripple(sc);
+            r.m.scale.setScalar(3);
+            return (c) => {
+              const k = clamp01((c - 0.5) / 0.9);
+              const e = easeInOut(k);
+              const dx = (w.to.x - w.from.x) * e,
+                dz = (w.to.z - w.from.z) * e;
+              w.pa.position.set(w.from.x + dx, 0.12, w.from.z + dz);
+              w.pa.material.color.copy(hsl(HUE_A, 0.22, 0.36)).lerp(hsl(HUE_B, 0.22, 0.36), e);
+              ts.forEach((t) => {
+                t.place(t.x + dx, t.z + dz);
+                t.m.material.color.copy(towerColor(HUE_A)).lerp(towerColor(HUE_B), e);
+                t.cap.material.color.copy(capColor(HUE_A)).lerp(capColor(HUE_B), e);
+              });
+              s.material.opacity = c > 0.5 ? 0.9 * (1 - (c - 0.5) / 3.5) : 0;
+              r.at(w.to.x, w.to.z, (c - 1.4) / 0.7);
+            };
+          },
+        },
+      ];
+
+      function build(opt, holder, isFolder) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2><span>${opt.key} · ${opt.title}</span><span class="rec">${opt.rec}</span></h2><div class="view"><canvas></canvas></div><div class="notes">${opt.notes}</div>`;
+        document.getElementById(holder).appendChild(card);
+        const canvas = card.querySelector('canvas'),
+          view = card.querySelector('.view');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d2f38);
+        const camera = new THREE.PerspectiveCamera(30, 1.25, 0.1, 200);
+        const ELEV = THREE.MathUtils.degToRad(38),
+          YAW = THREE.MathUtils.degToRad(15);
+        camera.position
+          .set(Math.cos(ELEV) * Math.sin(YAW), Math.sin(ELEV), Math.cos(ELEV) * Math.cos(YAW))
+          .multiplyScalar(30);
+        camera.lookAt(0, 0.8, 0);
+        scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const k = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        k.position.set(-12, 14, 9);
+        k.castShadow = true;
+        k.shadow.mapSize.set(1024, 1024);
+        k.shadow.radius = 5;
+        k.shadow.bias = -0.0004;
+        const c = k.shadow.camera;
+        c.left = c.bottom = -14;
+        c.right = c.top = 14;
+        c.far = 60;
+        scene.add(k);
+        const r = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+        r.position.set(10, 6, -8);
+        scene.add(r);
+        const w = world(scene, isFolder);
+        const tick = opt.build(scene, w);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(400, 320), 0.5, 0.3, 1.0));
+        composer.addPass(new OutputPass());
+        composer.addPass(new SMAAPass());
+        function resize() {
+          const cw = view.clientWidth,
+            ch = view.clientHeight;
+          renderer.setSize(cw, ch, false);
+          composer.setSize(cw, ch);
+          camera.aspect = cw / ch;
+          camera.updateProjectionMatrix();
+        }
+        new ResizeObserver(resize).observe(view);
+        resize();
+        const t0 = performance.now();
+        renderer.setAnimationLoop((ts) => {
+          tick(((ts - t0) / 1000) % CYCLE);
+          composer.render();
+        });
+      }
+      single.forEach((o) => build(o, 'single', false));
+      folder.forEach((o) => build(o, 'folder', true));
+    </script>
+  </body>
+</html>

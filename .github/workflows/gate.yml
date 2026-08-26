@@ -1,0 +1,24 @@
+# What CLAUDE.md asks a human to run before calling work green, run for them.
+# One job on purpose: Actions bills rounded up per job.
+name: gate
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run gate

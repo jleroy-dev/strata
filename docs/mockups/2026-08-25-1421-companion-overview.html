@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata mockup: companion at rest</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #06070a;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        display: flex;
+        gap: 24px;
+        padding: 24px;
+      }
+      .panel {
+        width: 420px;
+        height: 720px;
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        position: relative;
+        overflow: hidden;
+        border-radius: 4px;
+      }
+      canvas {
+        display: block;
+      }
+      .hud {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b7690;
+      }
+      .hud b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      .roster {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 10px auto auto;
+        gap: 8px;
+        align-items: center;
+        padding: 3px 8px;
+        background: rgba(11, 13, 18, 0.7);
+        border: 1px solid #1c2130;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .row:hover {
+        border-color: #3a4560;
+      }
+      .row .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        box-shadow: 0 0 6px currentColor;
+      }
+      .row .verb {
+        color: #9aa5bd;
+      }
+      .row .where {
+        color: #6b7690;
+      }
+      .row.done {
+        opacity: 0.5;
+      }
+      .row .path {
+        grid-column: 1 / -1;
+        color: #8a94ab;
+        font-size: 11px;
+        display: none;
+      }
+      .row:hover .path {
+        display: block;
+      }
+      .timeline {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 44px;
+        background: linear-gradient(transparent, rgba(6, 7, 10, 0.9));
+      }
+      .timeline canvas {
+        position: absolute;
+        bottom: 0;
+      }
+      .tlabel {
+        position: absolute;
+        bottom: 30px;
+        left: 10px;
+        font-size: 10px;
+        color: #6b7690;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .caption {
+        position: absolute;
+        left: 10px;
+        bottom: 54px;
+        background: rgba(11, 13, 18, 0.9);
+        border: 1px solid #2a3245;
+        padding: 6px 10px;
+        border-radius: 3px;
+        font-size: 11px;
+        display: none;
+      }
+      .caption .p {
+        color: #dfe6f5;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      .options {
+        width: 420px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 8px;
+        color: #dfe6f5;
+      }
+      h2 {
+        font-size: 12px;
+        margin: 18px 0 6px;
+        color: #9aa5bd;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      p {
+        margin: 4px 0 8px;
+        color: #9aa5bd;
+      }
+      label {
+        display: block;
+        margin: 3px 0;
+        cursor: pointer;
+      }
+      .rec {
+        color: #b8e6a8;
+      }
+      kbd {
+        background: #1c2130;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 11px;
+      }
+      .contest {
+        color: #f2c14e;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel" id="panel">
+      <canvas id="map" width="420" height="720"></canvas>
+      <div class="hud">
+        camera <b id="mode">Overview</b> <span id="modehint">· C cycles · Home returns</span>
+      </div>
+      <div class="roster" id="roster"></div>
+      <div class="caption" id="caption"></div>
+      <div class="timeline">
+        <div class="tlabel">last hour · drag to scrub · Esc returns to now</div>
+        <canvas id="tl" width="420" height="28"></canvas>
+      </div>
+    </div>
+
+    <div class="options">
+      <h1>Companion at rest: what is on screen with no interaction</h1>
+      <p>
+        Left: a 420 px side panel. Hover a roster row to isolate that agent. Click a beacon to
+        Follow it. Click a block for its caption. Drag the strip at the bottom to scrub the last
+        hour. <kbd>C</kbd> cycles modes, <kbd>Home</kbd> returns to Overview, <kbd>Esc</kbd> clears
+        selection / scrub.
+      </p>
+
+      <h2>Two agents on one block</h2>
+      <label
+        ><input type="radio" name="contest" value="ring" checked />
+        <span class="rec">Recommended:</span> last-touch tint +
+        <span class="contest">contested ring</span></label
+      >
+      <label><input type="radio" name="contest" value="blend" /> Blend the two hues</label>
+      <p>
+        Blend produces a third hue, which is what a third agent looks like. The ring is a warning:
+        two agents on one file is where conflicting edits come from. Window for "contested":
+        <select id="cwin">
+          <option value="60">1 min</option>
+          <option value="300" selected>5 min (recommended)</option>
+          <option value="900">15 min</option>
+        </select>
+      </p>
+
+      <h2>Heat window</h2>
+      <label
+        ><input type="radio" name="heat" value="20" checked />
+        <span class="rec">Recommended:</span> 20 s</label
+      >
+      <label><input type="radio" name="heat" value="120" /> 2 min (everything lights up)</label>
+
+      <h2>Trace horizon</h2>
+      <label
+        ><input type="radio" name="trace" value="3600" checked />
+        <span class="rec">Recommended:</span> 1 hour, linear dim</label
+      >
+      <label><input type="radio" name="trace" value="600" /> 10 min</label>
+      <p>
+        Trace and the timeline strip share this number, so the strip is exactly what the map still
+        remembers.
+      </p>
+
+      <h2>Beacon size</h2>
+      <label
+        ><input type="radio" name="beacon" value="screen" checked />
+        <span class="rec">Recommended:</span> screen space (same pixels at any zoom)</label
+      >
+      <label
+        ><input type="radio" name="beacon" value="world" /> world space (a dot in Overview)</label
+      >
+
+      <h2>Simulation</h2>
+      <label><input type="checkbox" id="run" checked /> agents active</label>
+      <label><input type="checkbox" id="third" /> a third agent arrives</label>
+      <p>Time runs 20x so an hour of trace passes in three minutes.</p>
+    </div>
+
+    <script>
+      // ---------- fake repo ----------
+      const countries = [
+        {
+          name: 'packages/core',
+          hue: 210,
+          x: 40,
+          z: 40,
+          districts: ['src', 'src/layout', 'src/spec'],
+        },
+        {
+          name: 'packages/server',
+          hue: 160,
+          x: 190,
+          z: 40,
+          districts: ['src', 'src/feeds', 'src/hooks'],
+        },
+        {
+          name: 'packages/web',
+          hue: 30,
+          x: 40,
+          z: 190,
+          districts: ['src', 'src/scene', 'src/hud'],
+        },
+        { name: 'packages/vscode', hue: 280, x: 190, z: 190, districts: ['src'] },
+        { name: 'docs', hue: 90, x: 300, z: 120, districts: ['.', 'mockups'] },
+      ];
+      const files = [
+        'index.ts',
+        'events.ts',
+        'hierarchy.ts',
+        'placeBlocks.ts',
+        'camera.ts',
+        'roster.ts',
+        'timeline.ts',
+        'watcher.ts',
+        'hooks.ts',
+        'socket.ts',
+        'main.ts',
+        'scene.ts',
+        'beacon.ts',
+        'trace.ts',
+        'DESIGN.md',
+        'NOTES.md',
+        'panel.ts',
+        'bridge.ts',
+        'csp.ts',
+        'gate.spec.ts',
+      ];
+      let seed = 7;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      const blocks = [];
+      countries.forEach((c) => {
+        c.districts.forEach((d, di) => {
+          const n = 4 + Math.floor(rnd() * 6);
+          for (let i = 0; i < n; i++) {
+            blocks.push({
+              id: `${c.name}/${d}/${files[Math.floor(rnd() * files.length)].replace('.', i + '.')}`,
+              country: c,
+              district: `${c.name}/${d}`,
+              gx: c.x + (i % 4) * 14 + (di % 2) * 60,
+              gz: c.z + Math.floor(i / 4) * 14 + Math.floor(di / 2) * 40,
+              h: 6 + rnd() * 28,
+              size: Math.floor(200 + rnd() * 9000),
+              trace: null,
+              heat: 0,
+              touches: [],
+            });
+          }
+        });
+      });
+
+      // ---------- agents ----------
+      const agentSlots = [
+        { id: 'claude 7f3a', hue: 45 },
+        { id: 'claude 2c91', hue: 330 },
+        { id: 'claude b80e', hue: 190 },
+      ];
+      const agents = [];
+      function arrive(slot) {
+        agents.push({
+          ...slot,
+          verb: 'idle',
+          block: null,
+          home: blocks[Math.floor(Math.random() * blocks.length)],
+          alive: true,
+          done: 0,
+        });
+      }
+      arrive(agentSlots[0]);
+      arrive(agentSlots[1]);
+
+      // ---------- clock and log ----------
+      let now = 0;
+      const SPEED = 20;
+      const log = [];
+      function touch(agent, block, verb) {
+        block.touches.push({ at: now, agent });
+        block.trace = { at: now, agent };
+        block.heat = now;
+        log.push({ at: now, agent, block, verb });
+      }
+      function step(dt) {
+        now += dt * SPEED;
+        if (!document.getElementById('run').checked) return;
+        agents.forEach((a) => {
+          if (!a.alive) return;
+          if (Math.random() < dt * 0.9) {
+            const r = Math.random();
+            if (r < 0.15) {
+              a.verb = 'running';
+              a.block = null;
+              return;
+            }
+            const near = blocks.filter((b) => b.district === a.home.district);
+            if (r < 0.25 || near.length === 0)
+              a.home = blocks[Math.floor(Math.random() * blocks.length)];
+            const pool = blocks.filter((b) => b.district === a.home.district);
+            const b = pool[Math.floor(Math.random() * pool.length)];
+            // contest: sometimes go where another agent has been
+            const other = agents.find((o) => o !== a && o.alive && o.block);
+            const target = other && Math.random() < 0.12 ? other.block : b;
+            a.block = target;
+            a.verb = Math.random() < 0.45 ? 'reading' : 'editing';
+            touch(a, target, a.verb);
+          }
+        });
+        const third = document.getElementById('third').checked;
+        if (third && agents.length < 3) arrive(agentSlots[2]);
+        if (!third && agents.length === 3 && agents[2].alive) {
+          agents[2].alive = false;
+          agents[2].verb = 'done';
+          agents[2].done = now;
+        }
+      }
+
+      // ---------- state ----------
+      let mode = 'Overview';
+      let follow = null;
+      let selected = null;
+      let isolate = null;
+      let scrub = null;
+      let hover = null;
+      const cam = { x: 0, y: 0, s: 1 };
+      const camTarget = { x: 0, y: 0, s: 1 };
+      const opt = (name) => document.querySelector(`input[name=${name}]:checked`).value;
+
+      // ---------- render ----------
+      const cv = document.getElementById('map'),
+        ctx = cv.getContext('2d');
+      const iso = (x, z, y = 0) => ({ sx: (x - z) * 0.9 + 210, sy: (x + z) * 0.45 - y + 250 });
+      function box(b, fill, glow) {
+        const s = 10;
+        const p = [
+          iso(b.gx, b.gz, b.h),
+          iso(b.gx + s, b.gz, b.h),
+          iso(b.gx + s, b.gz + s, b.h),
+          iso(b.gx, b.gz + s, b.h),
+        ];
+        const q = [iso(b.gx, b.gz + s, 0), iso(b.gx + s, b.gz + s, 0), iso(b.gx + s, b.gz, 0)];
+        if (glow) {
+          ctx.shadowColor = glow;
+          ctx.shadowBlur = 14;
+        } else ctx.shadowBlur = 0;
+        ctx.fillStyle = fill(0.55);
+        ctx.beginPath();
+        ctx.moveTo(p[3].sx, p[3].sy);
+        ctx.lineTo(p[2].sx, p[2].sy);
+        ctx.lineTo(q[1].sx, q[1].sy);
+        ctx.lineTo(q[0].sx, q[0].sy);
+        ctx.fill();
+        ctx.fillStyle = fill(0.4);
+        ctx.beginPath();
+        ctx.moveTo(p[2].sx, p[2].sy);
+        ctx.lineTo(p[1].sx, p[1].sy);
+        ctx.lineTo(q[2].sx, q[2].sy);
+        ctx.lineTo(q[1].sx, q[1].sy);
+        ctx.fill();
+        ctx.fillStyle = fill(0.85);
+        ctx.beginPath();
+        p.forEach((pt, i) => (i ? ctx.lineTo(pt.sx, pt.sy) : ctx.moveTo(pt.sx, pt.sy)));
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        return p[0];
+      }
+      function stateAt(t) {
+        // trace/heat as of time t (for scrub)
+        const heatW = +opt('heat'),
+          traceW = +opt('trace'),
+          cwin = +document.getElementById('cwin').value;
+        return blocks.map((b) => {
+          const past = b.touches.filter((x) => x.at <= t);
+          const last = past[past.length - 1];
+          const heat = last ? Math.max(0, 1 - (t - last.at) / heatW) : 0;
+          const trace = last ? Math.max(0, 1 - (t - last.at) / traceW) : 0;
+          const recent = new Set(past.filter((x) => t - x.at < cwin).map((x) => x.agent.id));
+          return {
+            b,
+            last,
+            heat,
+            trace,
+            contested: recent.size > 1,
+            agents: past.filter((x) => t - x.at < cwin).map((x) => x.agent),
+          };
+        });
+      }
+      function draw() {
+        const t = scrub ?? now;
+        const st = stateAt(t);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#0b0d12';
+        ctx.fillRect(0, 0, 420, 720);
+        // camera
+        if (mode === 'Follow') {
+          const a =
+            follow ??
+            agents
+              .filter((x) => x.alive)
+              .sort(
+                (p, q) =>
+                  log.findLastIndex((l) => l.agent === q) - log.findLastIndex((l) => l.agent === p),
+              )[0];
+          const tb = a?.block ?? a?.home;
+          if (tb) {
+            const c = iso(tb.gx, tb.gz, 0);
+            camTarget.s = 2.2;
+            camTarget.x = 210 - c.sx * 2.2;
+            camTarget.y = 300 - c.sy * 2.2;
+          }
+        }
+        if (mode === 'Overview') {
+          camTarget.s = 1;
+          camTarget.x = 0;
+          camTarget.y = 0;
+        }
+        cam.x += (camTarget.x - cam.x) * 0.08;
+        cam.y += (camTarget.y - cam.y) * 0.08;
+        cam.s += (camTarget.s - cam.s) * 0.08;
+        ctx.setTransform(cam.s, 0, 0, cam.s, cam.x, cam.y);
+        // plates
+        countries.forEach((c) => {
+          const p = [
+            iso(c.x - 8, c.z - 8),
+            iso(c.x + 120, c.z - 8),
+            iso(c.x + 120, c.z + 90),
+            iso(c.x - 8, c.z + 90),
+          ];
+          ctx.fillStyle = `hsla(${c.hue},20%,14%,1)`;
+          ctx.beginPath();
+          p.forEach((pt, i) => (i ? ctx.lineTo(pt.sx, pt.sy) : ctx.moveTo(pt.sx, pt.sy)));
+          ctx.fill();
+        });
+        // blocks, back to front
+        const tops = new Map();
+        st.slice()
+          .sort((a, b) => a.b.gx + a.b.gz - (b.b.gx + b.b.gz))
+          .forEach(({ b, last, heat, trace, contested, agents: ag }) => {
+            const c = b.country;
+            let dim = isolate && last?.agent !== isolate ? 0.35 : 1;
+            if (isolate && !last) dim = 0.35;
+            let fill = (a) => `hsla(${c.hue},35%,${20 + 22 * a}%,${dim})`;
+            let glow = null;
+            if (last && trace > 0) {
+              const blend = opt('contest') === 'blend' && contested;
+              const hue = blend ? ag.reduce((s, x) => s + x.hue, 0) / ag.length : last.agent.hue;
+              const mix = 0.15 + 0.3 * trace + 0.55 * heat;
+              fill = (a) =>
+                `hsla(${hue},${Math.round(20 + 60 * mix)}%,${Math.round((20 + 22 * a) * (1 - mix) + 62 * mix)}%,${dim})`;
+              if (heat > 0.3) glow = `hsla(${hue},90%,60%,${heat * dim})`;
+            }
+            const top = box(b, fill, glow);
+            tops.set(b, top);
+            if (contested && opt('contest') === 'ring' && dim === 1) {
+              ctx.save();
+              ctx.setLineDash([3, 3]);
+              ctx.lineDashOffset = -(now * 2) % 6;
+              ctx.strokeStyle = '#f2c14e';
+              ctx.lineWidth = 1.5;
+              const p = [
+                iso(b.gx - 2, b.gz - 2, b.h + 1),
+                iso(b.gx + 12, b.gz - 2, b.h + 1),
+                iso(b.gx + 12, b.gz + 12, b.h + 1),
+                iso(b.gx - 2, b.gz + 12, b.h + 1),
+              ];
+              ctx.beginPath();
+              p.forEach((pt, i) => (i ? ctx.lineTo(pt.sx, pt.sy) : ctx.moveTo(pt.sx, pt.sy)));
+              ctx.closePath();
+              ctx.stroke();
+              ctx.restore();
+            }
+            if (b === selected || b === hover) {
+              ctx.strokeStyle = '#dfe6f5';
+              ctx.lineWidth = 1 / cam.s;
+              const p = [
+                iso(b.gx, b.gz, b.h),
+                iso(b.gx + 10, b.gz, b.h),
+                iso(b.gx + 10, b.gz + 10, b.h),
+                iso(b.gx, b.gz + 10, b.h),
+              ];
+              ctx.beginPath();
+              p.forEach((pt, i) => (i ? ctx.lineTo(pt.sx, pt.sy) : ctx.moveTo(pt.sx, pt.sy)));
+              ctx.closePath();
+              ctx.stroke();
+            }
+          });
+        // beacons (only at "now")
+        if (scrub === null)
+          agents.forEach((a) => {
+            if (!a.alive) return;
+            const b = a.block ?? a.home;
+            const p = iso(b.gx + 5, b.gz + 5, b.h + 18);
+            const r =
+              (opt('beacon') === 'screen' ? 5 / cam.s : 5) * (isolate && isolate !== a ? 0.5 : 1);
+            const breathe = 1 + 0.15 * Math.sin(now / 4 + a.hue);
+            ctx.fillStyle = `hsla(${a.hue},90%,65%,${isolate && isolate !== a ? 0.35 : 1})`;
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.shadowBlur = 18;
+            ctx.beginPath();
+            ctx.arc(p.sx, p.sy, r * breathe, 0, 7);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = ctx.fillStyle;
+            ctx.lineWidth = 1 / cam.s;
+            ctx.beginPath();
+            ctx.moveTo(p.sx, p.sy + r);
+            ctx.lineTo(p.sx, p.sy + 18 / cam.s);
+            ctx.stroke();
+            if (a.verb === 'running') {
+              ctx.strokeStyle = ctx.fillStyle;
+              ctx.beginPath();
+              ctx.arc(p.sx, p.sy, r * 2.2, (now / 3) % 6.28, ((now / 3) % 6.28) + 4);
+              ctx.stroke();
+            }
+            // ping ring on fresh touch
+            const last = log.findLast((l) => l.agent === a);
+            if (last && now - last.at < 30) {
+              const k = (now - last.at) / 30;
+              ctx.strokeStyle = `hsla(${a.hue},90%,65%,${1 - k})`;
+              ctx.beginPath();
+              ctx.arc(p.sx, p.sy, r * (1 + 5 * k), 0, 7);
+              ctx.stroke();
+            }
+            a.screen = { x: p.sx * cam.s + cam.x, y: p.sy * cam.s + cam.y, r: r * cam.s };
+          });
+        // labels on hover / selection
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        [hover, selected].filter(Boolean).forEach((b) => {
+          const p = tops.get(b);
+          if (!p) return;
+          ctx.fillStyle = '#dfe6f5';
+          ctx.font = '11px ui-monospace';
+          ctx.fillText(b.id.split('/').pop(), p.sx * cam.s + cam.x + 8, p.sy * cam.s + cam.y - 6);
+        });
+        // scrub label
+        if (scrub !== null) {
+          ctx.fillStyle = '#f2c14e';
+          ctx.font = '11px ui-monospace';
+          ctx.fillText(`as of ${fmt(now - scrub)} ago`, 10, 700 - 44);
+        }
+        drawTimeline(t);
+        drawRoster();
+        drawCaption();
+      }
+      const fmt = (s) => (s < 60 ? `${Math.round(s)}s` : `${Math.round(s / 60)} min`);
+      const tl = document.getElementById('tl'),
+        tctx = tl.getContext('2d');
+      function drawTimeline(t) {
+        const W = +opt('trace');
+        tctx.clearRect(0, 0, 420, 28);
+        tctx.fillStyle = '#10131b';
+        tctx.fillRect(0, 8, 420, 20);
+        agents.concat().forEach((a, i) =>
+          log
+            .filter((l) => l.agent === a && now - l.at < W)
+            .forEach((l) => {
+              const x = 420 - ((now - l.at) / W) * 420;
+              tctx.fillStyle = `hsla(${a.hue},80%,60%,${isolate && isolate !== a ? 0.25 : 0.9})`;
+              tctx.fillRect(x, 10 + i * 6, 2, 5);
+            }),
+        );
+        for (let m = 0; m <= W; m += W / 6) {
+          const x = 420 - (m / W) * 420;
+          tctx.fillStyle = '#2a3245';
+          tctx.fillRect(x, 8, 1, 20);
+        }
+        if (scrub !== null) {
+          const x = 420 - ((now - scrub) / W) * 420;
+          tctx.fillStyle = '#f2c14e';
+          tctx.fillRect(x - 1, 4, 2, 24);
+        }
+      }
+      function drawRoster() {
+        const el = document.getElementById('roster');
+        el.innerHTML = '';
+        agents.forEach((a) => {
+          if (!a.alive && now - a.done > 120) return;
+          const row = document.createElement('div');
+          row.className = 'row' + (a.alive ? '' : ' done');
+          const where = a.verb === 'running' || !a.block ? '' : a.block.district;
+          row.innerHTML = `<span class="dot" style="color:hsl(${a.hue},90%,65%);background:currentColor"></span><span>${a.id}</span><span class="verb">${a.alive ? a.verb : 'done'}</span><span class="path">${a.block?.id ?? (a.verb === 'running' ? 'npm run gate' : '')}</span>`;
+          if (where)
+            row
+              .querySelector('.verb')
+              .insertAdjacentHTML('afterend', `<span class="where">${where}</span>`);
+          row.onmouseenter = () => {
+            isolate = a;
+          };
+          row.onmouseleave = () => {
+            isolate = null;
+          };
+          row.onclick = () => {
+            mode = 'Follow';
+            follow = a;
+            setMode();
+          };
+          el.appendChild(row);
+        });
+      }
+      function drawCaption() {
+        const c = document.getElementById('caption');
+        if (!selected) {
+          c.style.display = 'none';
+          return;
+        }
+        const last = selected.touches
+          .slice(-3)
+          .reverse()
+          .map((x) => `${x.agent.id} ${fmt(now - x.at)} ago`)
+          .join(' · ');
+        c.style.display = 'block';
+        c.innerHTML = `<div class="p">${selected.id}</div><div>${selected.size} B${last ? ' · ' + last : ''}</div>`;
+      }
+      function setMode() {
+        document.getElementById('mode').textContent =
+          mode + (mode === 'Follow' ? (follow ? ` · ${follow.id}` : ' · auto') : '');
+      }
+
+      // ---------- input ----------
+      cv.addEventListener('mousemove', (e) => {
+        const r = cv.getBoundingClientRect();
+        const x = e.clientX - r.left,
+          y = e.clientY - r.top;
+        hover = null;
+        let best = 14;
+        blocks.forEach((b) => {
+          const p = iso(b.gx + 5, b.gz + 5, b.h);
+          const d = Math.hypot(p.sx * cam.s + cam.x - x, p.sy * cam.s + cam.y - y);
+          if (d < best) {
+            best = d;
+            hover = b;
+          }
+        });
+      });
+      cv.addEventListener('click', (e) => {
+        const r = cv.getBoundingClientRect();
+        const x = e.clientX - r.left,
+          y = e.clientY - r.top;
+        const a = agents.find(
+          (a) => a.alive && a.screen && Math.hypot(a.screen.x - x, a.screen.y - y) < a.screen.r + 6,
+        );
+        if (a) {
+          mode = 'Follow';
+          follow = a;
+          setMode();
+          return;
+        }
+        selected = hover;
+      });
+      cv.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          mode = 'Free';
+          camTarget.s = Math.max(0.6, Math.min(3, camTarget.s * (e.deltaY < 0 ? 1.1 : 0.9)));
+          setMode();
+        },
+        { passive: false },
+      );
+      let drag = null;
+      cv.addEventListener('mousedown', (e) => {
+        drag = { x: e.clientX, y: e.clientY };
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!drag) return;
+        if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 3) {
+          mode = 'Free';
+          setMode();
+          camTarget.x += e.clientX - drag.x;
+          camTarget.y += e.clientY - drag.y;
+          drag = { x: e.clientX, y: e.clientY };
+        }
+      });
+      window.addEventListener('mouseup', () => {
+        drag = null;
+        tdrag = false;
+      });
+      let tdrag = false;
+      tl.addEventListener('mousedown', (e) => {
+        tdrag = true;
+        scrubAt(e);
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (tdrag) scrubAt(e);
+      });
+      function scrubAt(e) {
+        const r = tl.getBoundingClientRect();
+        const x = Math.max(0, Math.min(420, e.clientX - r.left));
+        scrub = now - (1 - x / 420) * +opt('trace');
+        if (x >= 418) scrub = null;
+      }
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'c' || e.key === 'C') {
+          mode = mode === 'Overview' ? 'Follow' : mode === 'Follow' ? 'Free' : 'Overview';
+          follow = null;
+          setMode();
+        }
+        if (e.key === 'Home') {
+          mode = 'Overview';
+          follow = null;
+          setMode();
+        }
+        if (e.key === 'Escape') {
+          selected = null;
+          scrub = null;
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          if (selected) {
+            mode = 'Free';
+            const c = iso(selected.gx, selected.gz);
+            camTarget.s = 2.2;
+            camTarget.x = 210 - c.sx * 2.2;
+            camTarget.y = 300 - c.sy * 2.2;
+            setMode();
+          }
+        }
+      });
+
+      // ---------- seed an hour of history ----------
+      for (let i = 0; i < 3600; i += 3) {
+        now = i;
+        step(0.15);
+      }
+      now = 3600;
+      let last = performance.now();
+      (function loop(ts) {
+        step((ts - last) / 1000);
+        last = ts;
+        draw();
+        requestAnimationFrame(loop);
+      })(last);
+    </script>
+  </body>
+</html>

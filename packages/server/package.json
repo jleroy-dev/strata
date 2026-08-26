@@ -1,0 +1,22 @@
+{
+  "name": "@strata/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "strata": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@strata/core": "*",
+    "chokidar": "5.0.0",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "tsx": "4.23.12"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@strata/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@strata/core": "*",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.4",
+    "vite": "8.2.2"
+  }
+}

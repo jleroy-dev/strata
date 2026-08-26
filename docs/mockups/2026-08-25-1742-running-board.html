@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata running board: what "running a command" looks like</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #101216;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 20px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 14px;
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .card {
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 11px;
+        margin: 0;
+        padding: 9px 11px;
+        color: #dfe6f5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-bottom: 1px solid #1c2130;
+        display: flex;
+        justify-content: space-between;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .card h2 .ref {
+        color: #7c879f;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .view {
+        aspect-ratio: 1.5 / 1;
+        position: relative;
+      }
+      .view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .row {
+        position: absolute;
+        right: 8px;
+        top: 8px;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 10.5px;
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        background: rgba(6, 8, 12, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 6px currentColor;
+      }
+      .notes {
+        padding: 10px 11px 12px;
+        color: #9aa5bd;
+        font-size: 11.5px;
+      }
+      .notes b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Running board: the agent is at the terminal, not on a file. Duration unknown. Each card loops
+      its cue; the read sweep and the edit worksite are there for contrast. Dusk, Follow distance.
+    </h1>
+    <div class="board" id="board"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(42, 1, 0.6);
+      const add = (color, mult, opacity = 1) =>
+        new THREE.MeshBasicMaterial({
+          color: color.clone().multiplyScalar(mult),
+          transparent: true,
+          opacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+      const easeInOut = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+      const easeOut = (k) => 1 - Math.pow(1 - k, 3);
+      const U = 1.15;
+      const towersSpec = [
+        [0, 0, 2.6],
+        [1, 0, 1.4],
+        [-1, 0, 2.1],
+        [0, 1, 1.1],
+        [0, -1, 1.8],
+        [1, 1, 0.9],
+        [-1, -1, 1.5],
+        [1, -1, 2.4],
+        [-1, 1, 1.0],
+        [2, 0, 1.3],
+        [-2, 0, 1.7],
+        [2, 1, 0.8],
+        [-2, -1, 1.2],
+      ];
+      const arcTex = (frac) => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        g.strokeStyle = '#fff';
+        g.lineWidth = 7;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.arc(64, 64, 52, 0, Math.PI * 2 * frac);
+        g.stroke();
+        return new THREE.CanvasTexture(c);
+      };
+      const spriteMat = (tex, mult, opacity = 1) =>
+        new THREE.SpriteMaterial({
+          map: tex,
+          color: AGENT.clone().multiplyScalar(mult),
+          sizeAttenuation: false,
+          depthTest: false,
+          transparent: true,
+          opacity,
+          toneMapped: false,
+          blending: THREE.AdditiveBlending,
+        });
+
+      const options = [
+        {
+          key: '1',
+          title: 'Orbiting arc',
+          rec: 'recommended',
+          verb: 'running',
+          lift: 0.4,
+          notes:
+            '<b>A third of a circle rotates around the core</b> at a fixed pixel radius, one turn per 1.5 s. The universal "working" sign, reads at any zoom, and rotation is an axis no other state uses. The beacon lifts 40% and the cap goes dark: it is at the terminal, not on the file.',
+          build: (sc, t, core) => {
+            const s = new THREE.Sprite(spriteMat(arcTex(0.33), 4));
+            s.scale.setScalar(0.09);
+            sc.add(s);
+            return (time) => {
+              s.position.copy(core.position);
+              s.material.rotation = -time * ((Math.PI * 2) / 1.5);
+            };
+          },
+        },
+        {
+          key: '2',
+          title: 'Heartbeat halo',
+          rec: '',
+          verb: 'running',
+          lift: 0,
+          notes:
+            '<b>The halo double-pulses</b> like a heartbeat every 1.2 s. Says "alive and busy", but pulsing is the edit family and at Overview size it is hard to tell from the idle breathe.',
+          build: (sc, t, core, halo) => (time) => {
+            const c = (time % 1.2) / 1.2;
+            const beat =
+              Math.exp(-c * 14) + 0.7 * Math.exp(-Math.max(0, c - 0.18) * 14) * (c > 0.18 ? 1 : 0);
+            halo.scale.setScalar(0.035 * (1 + 0.9 * beat));
+            core.scale.setScalar(0.1 * (1 + 0.6 * beat));
+          },
+        },
+        {
+          key: '3',
+          title: 'Spinning dots',
+          rec: '',
+          verb: 'running',
+          lift: 0.4,
+          notes:
+            '<b>Three dots orbit the core</b> at different radii and speeds. Lighter and friendlier than the arc, closer to a "thinking" cue than a "working" one; three moving points read as clutter next to a trail head in Overview.',
+          build: (sc, t, core) => {
+            const dots = [0, 1, 2].map((i) => {
+              const s = new THREE.Sprite(spriteMat(arcTex(1), 6));
+              s.scale.setScalar(0.012);
+              sc.add(s);
+              return s;
+            });
+            return (time) => {
+              dots.forEach((d, i) => {
+                const a = time * (2 + i * 0.7) + i * 2.1;
+                const r = 0.04 + i * 0.012;
+                d.position.copy(core.position);
+                d.center.set(0.5 - (Math.cos(a) * r) / 0.012, 0.5 - (Math.sin(a) * r) / 0.012);
+              });
+            };
+          },
+        },
+        {
+          key: '4',
+          title: 'Rising ticks',
+          rec: '',
+          verb: 'running',
+          lift: 0.4,
+          notes:
+            '<b>Short bars climb the stem</b> from the block to the beacon, like a log scrolling. Says "output is flowing", which is literally true of a shell command, but vertical and one-way like the read sweep: the two states share an axis.',
+          build: (sc, t, core, halo, stem) => {
+            const ticks = [0, 1, 2, 3].map(() => {
+              const m = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.16), add(AGENT, 3, 0.9));
+              sc.add(m);
+              return m;
+            });
+            return (time) => {
+              ticks.forEach((m, i) => {
+                const k = (time / 1.1 + i / 4) % 1;
+                m.position.set(0, stem.userData.y0 + (core.position.y - stem.userData.y0) * k, 0);
+                m.material.opacity = 0.9 * Math.sin(k * Math.PI);
+              });
+            };
+          },
+        },
+        {
+          key: 'ref-r',
+          title: 'Read sweep',
+          rec: '',
+          ref: 'for contrast',
+          verb: 'reading',
+          lift: 0,
+          notes: '<b>Reading, as decided</b>: vertical, metronomic.',
+          build: (sc, t) => {
+            const band = new THREE.Mesh(
+              new THREE.BoxGeometry(0.94, 0.05, 0.94),
+              add(AGENT, 2.2, 0.9),
+            );
+            const ghost = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1, 0.9), add(AGENT, 0.35, 0.5));
+            sc.add(band, ghost);
+            t.capLit = 3.5;
+            return (time) => {
+              const k = easeInOut((time / 0.8) % 1);
+              const env = Math.pow(Math.sin(k * Math.PI), 0.7);
+              band.position.y = 0.25 + t.h * k;
+              band.material.opacity = 0.9 * env;
+              ghost.position.y = 0.25 + (t.h * k) / 2;
+              ghost.scale.y = Math.max(0.01, t.h * k);
+              ghost.material.opacity = 0.16 * (1 - k) * env;
+            };
+          },
+        },
+        {
+          key: 'ref-e',
+          title: 'Edit worksite',
+          rec: '',
+          ref: 'for contrast',
+          verb: 'editing',
+          lift: 0,
+          notes:
+            '<b>Editing, as decided</b>: radial, bursty; the cap flickers. Shown here with the proposed standing work light for Overview legibility.',
+          build: (sc, t) => {
+            t.capLit = 6;
+            const w = new THREE.Mesh(
+              new THREE.PlaneGeometry(2.8, 2.8).rotateX(-Math.PI / 2),
+              new THREE.ShaderMaterial({
+                uniforms: {
+                  uColor: { value: AGENT.clone().multiplyScalar(1.6) },
+                  uR1: { value: -1 },
+                  uK: { value: 0 },
+                },
+                vertexShader:
+                  'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+                fragmentShader:
+                  'uniform vec3 uColor; uniform float uR1; uniform float uK; varying vec2 vUv; float wave(float d, float r){ if (r < 0.0) return 0.0; float front = 1.0 - smoothstep(r - 0.03, r, d); float tail = smoothstep(r - 0.35, r, d); return front * tail * pow(max(0.0, 1.0 - r / 0.62), 1.8); } void main(){ float d = length(vUv - 0.5) * 2.0; float a = wave(d, uR1) * (1.0 - uK); gl_FragColor = vec4(uColor * a, 1.0); }',
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                toneMapped: false,
+              }),
+            );
+            w.position.y = 0.25 + t.h + 0.07;
+            sc.add(w);
+            const g = new THREE.CylinderGeometry(0.2, 0.15, 1, 16, 1, true);
+            g.translate(0, 0.5, 0);
+            const light = new THREE.Mesh(
+              g,
+              new THREE.ShaderMaterial({
+                uniforms: {
+                  uColor: { value: AGENT.clone().multiplyScalar(0.45) },
+                  uOpacity: { value: 1 },
+                },
+                vertexShader:
+                  'varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+                fragmentShader:
+                  'uniform vec3 uColor; uniform float uOpacity; varying float vY; void main(){ float a = pow(1.0 - clamp(vY, 0.0, 1.0), 1.2); gl_FragColor = vec4(uColor * a * uOpacity, 1.0); }',
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                toneMapped: false,
+              }),
+            );
+            light.position.y = 0.25 + t.h + 0.03;
+            light.scale.set(1, 4, 1);
+            sc.add(light);
+            let next = 0.3,
+              r0 = -1e9;
+            return (time) => {
+              if (time >= next) {
+                r0 = time;
+                next = time + 1.2 + Math.random() * 0.6;
+              }
+              const k = (time - r0) / 0.7;
+              w.material.uniforms.uR1.value = k < 1 ? easeOut(k) * 0.62 : -1;
+              w.material.uniforms.uK.value = Math.min(1, k * k);
+              t.flicker =
+                0.15 * Math.sin(time * 37) +
+                0.1 * Math.sin(time * 23.7) +
+                0.08 * Math.sin(time * 61.3);
+              light.material.uniforms.uOpacity.value = 1 + t.flicker * 2;
+            };
+          },
+        },
+      ];
+
+      function build(opt) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2><span>${opt.key} · ${opt.title}</span><span class="${opt.ref ? 'ref' : 'rec'}">${opt.ref ?? opt.rec}</span></h2><div class="view"><canvas></canvas><div class="row" style="color:hsl(42,90%,62%)"><span class="dot"></span><span style="color:#ddd">claude 7f3a</span><span style="color:#b5bed2">${opt.verb}</span></div></div><div class="notes">${opt.notes}</div>`;
+        document.getElementById('board').appendChild(card);
+        const canvas = card.querySelector('canvas'),
+          view = card.querySelector('.view');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d2f38);
+        const camera = new THREE.PerspectiveCamera(30, 1.5, 0.1, 100);
+        const ELEV = THREE.MathUtils.degToRad(38),
+          YAW = THREE.MathUtils.degToRad(28);
+        camera.position
+          .set(Math.cos(ELEV) * Math.sin(YAW), Math.sin(ELEV), Math.cos(ELEV) * Math.cos(YAW))
+          .multiplyScalar(14);
+        camera.lookAt(0, 1.4, 0);
+        scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const k = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        k.position.set(-8, 9, 6);
+        k.castShadow = true;
+        k.shadow.mapSize.set(1024, 1024);
+        k.shadow.radius = 5;
+        k.shadow.bias = -0.0004;
+        const c = k.shadow.camera;
+        c.left = c.bottom = -7;
+        c.right = c.top = 7;
+        c.far = 40;
+        scene.add(k);
+        const r = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+        r.position.set(6, 4, -5);
+        scene.add(r);
+        const std = (color) =>
+          new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), std(hsl(228, 0.08, 0.24)));
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.3;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        const plat = new THREE.Mesh(
+          new THREE.BoxGeometry(5.6 * U, 0.25, 3.6 * U),
+          std(hsl(212, 0.22, 0.36)),
+        );
+        plat.position.y = 0.12;
+        plat.receiveShadow = plat.castShadow = true;
+        scene.add(plat);
+        const tg = new THREE.BoxGeometry(0.8, 1, 0.8);
+        tg.translate(0, 0.5, 0);
+        const target = { h: towersSpec[0][2], capLit: 0 };
+        towersSpec.forEach(([x, z, h], i) => {
+          const m = new THREE.Mesh(tg, std(hsl(212, 0.26, 0.5)));
+          m.position.set(x * U, 0.25, z * U);
+          m.scale.y = h;
+          m.castShadow = m.receiveShadow = true;
+          scene.add(m);
+          const cap = new THREE.Mesh(
+            new THREE.BoxGeometry(0.84, 0.06, 0.84),
+            new THREE.MeshBasicMaterial({ color: hsl(212, 0.45, 0.58), toneMapped: false }),
+          );
+          cap.position.set(x * U, 0.25 + h, z * U);
+          scene.add(cap);
+          if (i === 0) target.cap = cap;
+        });
+        const y0 = 0.25 + target.h + 0.3,
+          y = y0 + 0.95 * (1 + opt.lift);
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 12, 12),
+          new THREE.MeshBasicMaterial({
+            color: AGENT.clone().multiplyScalar(18),
+            toneMapped: false,
+          }),
+        );
+        core.position.set(0, y, 0);
+        scene.add(core);
+        const haloTex = (() => {
+          const c = document.createElement('canvas');
+          c.width = c.height = 64;
+          const g = c.getContext('2d');
+          const rg = g.createRadialGradient(32, 32, 1, 32, 32, 30);
+          rg.addColorStop(0, 'rgba(255,255,255,1)');
+          rg.addColorStop(0.18, 'rgba(255,255,255,.9)');
+          rg.addColorStop(0.45, 'rgba(255,255,255,.18)');
+          rg.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = rg;
+          g.fillRect(0, 0, 64, 64);
+          return new THREE.CanvasTexture(c);
+        })();
+        const halo = new THREE.Sprite(spriteMat(haloTex, 3));
+        halo.scale.setScalar(0.035);
+        halo.position.copy(core.position);
+        scene.add(halo);
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, 1, 6),
+          new THREE.MeshBasicMaterial({
+            color: AGENT.clone().multiplyScalar(2),
+            transparent: true,
+            opacity: 0.6,
+            toneMapped: false,
+          }),
+        );
+        stem.position.set(0, (y0 - 0.3 + y) / 2, 0);
+        stem.scale.y = y - (y0 - 0.3);
+        stem.userData.y0 = y0 - 0.3;
+        scene.add(stem);
+        const spot = new THREE.Mesh(
+          new THREE.CircleGeometry(0.55, 32).rotateX(-Math.PI / 2),
+          add(AGENT, 1.2, 0.3),
+        );
+        spot.position.y = 0.25 + target.h + 0.02;
+        scene.add(spot);
+        const light = new THREE.PointLight(AGENT, 8, 8, 1.7);
+        light.position.copy(core.position);
+        scene.add(light);
+        const tick = opt.build(scene, target, core, halo, stem);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(400, 260), 0.5, 0.3, 1.0));
+        composer.addPass(new OutputPass());
+        composer.addPass(new SMAAPass());
+        function resize() {
+          const w = view.clientWidth,
+            h = view.clientHeight;
+          renderer.setSize(w, h, false);
+          composer.setSize(w, h);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        }
+        new ResizeObserver(resize).observe(view);
+        resize();
+        const t0 = performance.now();
+        renderer.setAnimationLoop((ts) => {
+          const s = (ts - t0) / 1000;
+          target.flicker = 0;
+          tick(s);
+          if (opt.key !== '2') {
+            halo.scale.setScalar(0.035 * (1 + 0.08 * Math.sin(s * 2.5)));
+            core.scale.setScalar(1 + 0.08 * Math.sin(s * 2.5));
+          }
+          target.cap.material.color.copy(
+            target.capLit
+              ? AGENT.clone().multiplyScalar(target.capLit * (1 + (target.flicker ?? 0)))
+              : hsl(212, 0.45, 0.58),
+          );
+          composer.render();
+        });
+      }
+      options.forEach(build);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(git branch:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git status:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(npm run gate:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run format:*)",
+      "Bash(npm view:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx prettier:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest run:*)",
+      "WebSearch"
+    ],
+    "deny": ["Bash(rm -rf:*)", "Bash(sudo:*)", "Bash(chmod 777:*)"]
+  }
+}

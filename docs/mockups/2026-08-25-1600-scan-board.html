@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata scan board: what "reading" looks like</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #101216;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 20px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 14px;
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 14px;
+      }
+      .card {
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 11px;
+        margin: 0;
+        padding: 9px 11px;
+        color: #dfe6f5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-bottom: 1px solid #1c2130;
+        display: flex;
+        justify-content: space-between;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .card h2 .ref {
+        color: #7c879f;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .view {
+        aspect-ratio: 1 / 1.15;
+      }
+      .view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .notes {
+        padding: 10px 11px 12px;
+        color: #9aa5bd;
+        font-size: 11.5px;
+      }
+      .notes b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Scan board: a read is a state, so it loops; an edit is an event, so it strikes. Four ways to
+      draw the loop, next to the strike for contrast. Dusk palette.
+    </h1>
+    <div class="board" id="board"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(42, 1, 0.6);
+      const add = (color, mult, opacity = 1, extra = {}) =>
+        new THREE.MeshBasicMaterial({
+          color: color.clone().multiplyScalar(mult),
+          transparent: true,
+          opacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+          ...extra,
+        });
+      const easeInOut = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+      const easeOut = (k) => 1 - Math.pow(1 - k, 3);
+
+      // a small district: one tall tower being read, neighbours around it
+      const towersSpec = [
+        [0, 0, 3.2],
+        [1, 0, 1.4],
+        [-1, 0, 2.1],
+        [0, 1, 1.1],
+        [0, -1, 1.8],
+        [1, 1, 0.9],
+        [-1, -1, 1.5],
+        [1, -1, 2.4],
+        [-1, 1, 1.0],
+      ];
+      const U = 1.15;
+
+      const options = [
+        {
+          key: '1',
+          title: 'Sweep band',
+          rec: 'recommended',
+          notes:
+            '<b>A thin band climbs the tower</b> on a 0.8 s loop, easing at both ends, with a short fade behind it. Vertical like the tower, abstract, and the universal "scanning" sign. Never blooms much.',
+          build: (sc, t) => {
+            const band = new THREE.Mesh(
+              new THREE.BoxGeometry(0.94, 0.05, 0.94),
+              add(AGENT, 2.2, 0.9),
+            );
+            const ghost = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1, 0.9), add(AGENT, 0.35, 0.5));
+            sc.add(band, ghost);
+            return (s) => {
+              const k = easeInOut((s / 0.8) % 1);
+              const y = 0.25 + t.h * k;
+              band.position.set(0, y, 0);
+              ghost.position.set(0, 0.25 + (t.h * k) / 2, 0);
+              ghost.scale.y = Math.max(0.01, t.h * k);
+              ghost.material.opacity = 0.18 * (1 - k);
+            };
+          },
+        },
+        {
+          key: '2',
+          title: 'Sonar rings',
+          rec: '',
+          notes:
+            '<b>Small waves from the cap</b>, repeating every 0.7 s. Anchored, but it is the edit wave at a smaller scale: the same vocabulary for two different things, which is the ambiguity we have now.',
+          build: (sc, t) => {
+            const rings = [0, 1, 2].map(() => {
+              const m = new THREE.Mesh(
+                new THREE.RingGeometry(0.46, 0.5, 48).rotateX(-Math.PI / 2),
+                add(AGENT, 2),
+              );
+              m.position.y = 0.25 + t.h + 0.03;
+              sc.add(m);
+              return m;
+            });
+            return (s) =>
+              rings.forEach((m, i) => {
+                const k = (s / 0.7 + i / 3) % 1;
+                m.scale.setScalar(1 + 1.6 * easeOut(k));
+                m.material.opacity = Math.pow(1 - k, 2) * 0.8;
+              });
+          },
+        },
+        {
+          key: '3',
+          title: 'Spotlight from the beacon',
+          rec: '',
+          notes:
+            '<b>A cone of light from the beacon down onto the block</b>, flickering slightly. Collides with the edit column (also a vertical light) and a downward cone reads as targeting, not reading.',
+          build: (sc, t) => {
+            const g = new THREE.CylinderGeometry(0.55, 0.05, 1, 24, 1, true);
+            g.translate(0, 0.5, 0);
+            const cone = new THREE.Mesh(g, add(AGENT, 1.2, 0.35));
+            cone.position.y = 0.25 + t.h + 0.02;
+            cone.scale.y = 1.25;
+            sc.add(cone);
+            return (s) => {
+              cone.material.opacity = 0.28 + 0.1 * Math.sin(s * 23) + 0.06 * Math.sin(s * 7.3);
+            };
+          },
+        },
+        {
+          key: '4',
+          title: 'Edge trace',
+          rec: '',
+          notes:
+            "<b>The tower's edges light up bottom to top</b> and reset. Reads well where towers have edge lines (hologram); in dusk the towers have none, so the trace is a wireframe appearing from nowhere.",
+          build: (sc, t) => {
+            const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(0.82, t.h, 0.82));
+            geo.translate(0, 0.25 + t.h / 2, 0);
+            const pos = geo.attributes.position;
+            const cols = new Float32Array(pos.count * 3);
+            geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+            const lines = new THREE.LineSegments(
+              geo,
+              new THREE.LineBasicMaterial({
+                vertexColors: true,
+                transparent: true,
+                toneMapped: false,
+                blending: THREE.AdditiveBlending,
+              }),
+            );
+            sc.add(lines);
+            return (s) => {
+              const k = easeInOut((s / 1.1) % 1);
+              const top = 0.25 + t.h * k;
+              for (let i = 0; i < pos.count; i++) {
+                const y = pos.getY(i);
+                const lit = y <= top ? 1 : 0;
+                const near = Math.max(0, 1 - Math.abs(y - top) / 0.5);
+                const v = 0.25 * lit + 2.5 * near;
+                cols[i * 3] = AGENT.r * v;
+                cols[i * 3 + 1] = AGENT.g * v;
+                cols[i * 3 + 2] = AGENT.b * v;
+              }
+              geo.attributes.color.needsUpdate = true;
+            };
+          },
+        },
+        {
+          key: 'ref',
+          title: 'Edit strike',
+          rec: '',
+          ref: 'for contrast',
+          notes:
+            '<b>The event, as it is in the product mockup</b>: contact flash, wave, light column, sparks, over half a second, then nothing. Every read option above must read as a different kind of thing from this.',
+          build: (sc, t) => {
+            const g = new THREE.CylinderGeometry(0.3, 0.22, 1, 16, 1, true);
+            g.translate(0, 0.5, 0);
+            const beam = new THREE.Mesh(
+              g,
+              new THREE.ShaderMaterial({
+                uniforms: {
+                  uColor: { value: AGENT.clone().multiplyScalar(3) },
+                  uOpacity: { value: 1 },
+                },
+                vertexShader:
+                  'varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+                fragmentShader:
+                  'uniform vec3 uColor; uniform float uOpacity; varying float vY; void main(){ float a = pow(1.0 - clamp(vY, 0.0, 1.0), 2.6); gl_FragColor = vec4(uColor * a * uOpacity, 1.0); }',
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                toneMapped: false,
+              }),
+            );
+            beam.position.y = 0.25 + t.h;
+            sc.add(beam);
+            const wave = new THREE.Mesh(
+              new THREE.PlaneGeometry(2.8, 2.8).rotateX(-Math.PI / 2),
+              new THREE.ShaderMaterial({
+                uniforms: {
+                  uColor: { value: AGENT.clone().multiplyScalar(5) },
+                  uR1: { value: 0 },
+                  uR2: { value: -1 },
+                  uK: { value: 0 },
+                },
+                vertexShader:
+                  'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+                fragmentShader:
+                  'uniform vec3 uColor; uniform float uR1; uniform float uR2; uniform float uK; varying vec2 vUv; float wave(float d, float r){ if (r < 0.0) return 0.0; float front = 1.0 - smoothstep(r - 0.03, r, d); float tail = smoothstep(r - 0.35, r, d); return front * tail * pow(max(0.0, 1.0 - r), 1.8); } void main(){ float d = length(vUv - 0.5) * 2.0; float a = (wave(d, uR1) + wave(d, uR2)) * (1.0 - uK); gl_FragColor = vec4(uColor * a, 1.0); }',
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                toneMapped: false,
+              }),
+            );
+            wave.position.y = 0.25 + t.h + 0.03;
+            sc.add(wave);
+            return (s) => {
+              const c = s % 2.2;
+              const k = Math.min(1, c / 0.6);
+              beam.scale.set(1 + 0.5 * k, 3 + 1.5 * easeOut(k), 1 + 0.5 * k);
+              beam.material.uniforms.uOpacity.value = Math.pow(1 - k, 2);
+              wave.material.uniforms.uR1.value = easeOut(Math.min(1, c / 0.5));
+              wave.material.uniforms.uR2.value =
+                c > 0.08 ? easeOut(Math.min(1, (c - 0.08) / 0.5)) : -1;
+              wave.material.uniforms.uK.value = k * k;
+              t.flash = Math.exp(-c / 0.15);
+            };
+          },
+        },
+      ];
+
+      function build(opt) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2><span>${opt.key} · ${opt.title}</span><span class="${opt.ref ? 'ref' : 'rec'}">${opt.ref ?? opt.rec}</span></h2><div class="view"><canvas></canvas></div><div class="notes">${opt.notes}</div>`;
+        document.getElementById('board').appendChild(card);
+        const canvas = card.querySelector('canvas'),
+          view = card.querySelector('.view');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d2f38);
+        const camera = new THREE.PerspectiveCamera(30, 1 / 1.15, 0.1, 100);
+        const ELEV = THREE.MathUtils.degToRad(38),
+          YAW = THREE.MathUtils.degToRad(28);
+        camera.position
+          .set(Math.cos(ELEV) * Math.sin(YAW), Math.sin(ELEV), Math.cos(ELEV) * Math.cos(YAW))
+          .multiplyScalar(11);
+        camera.lookAt(0, 1.4, 0);
+        scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const k = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        k.position.set(-8, 9, 6);
+        k.castShadow = true;
+        k.shadow.mapSize.set(1024, 1024);
+        k.shadow.radius = 5;
+        k.shadow.bias = -0.0004;
+        const c = k.shadow.camera;
+        c.left = c.bottom = -6;
+        c.right = c.top = 6;
+        c.far = 40;
+        scene.add(k);
+        const r = new THREE.DirectionalLight(0x8fb0ff, 0.5);
+        r.position.set(6, 4, -5);
+        scene.add(r);
+        const std = (color) =>
+          new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), std(hsl(228, 0.08, 0.24)));
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.3;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        const plat = new THREE.Mesh(
+          new THREE.BoxGeometry(3.6 * U, 0.25, 3.6 * U),
+          std(hsl(212, 0.22, 0.36)),
+        );
+        plat.position.y = 0.12;
+        plat.receiveShadow = plat.castShadow = true;
+        scene.add(plat);
+        const tg = new THREE.BoxGeometry(0.8, 1, 0.8);
+        tg.translate(0, 0.5, 0);
+        const target = { h: towersSpec[0][2] };
+        towersSpec.forEach(([x, z, h], i) => {
+          const m = new THREE.Mesh(tg, std(hsl(212, 0.26, 0.5)));
+          m.position.set(x * U, 0.25, z * U);
+          m.scale.y = h;
+          m.castShadow = m.receiveShadow = true;
+          scene.add(m);
+          const cap = new THREE.Mesh(
+            new THREE.BoxGeometry(0.84, 0.06, 0.84),
+            new THREE.MeshBasicMaterial({
+              color: i === 0 ? AGENT.clone().multiplyScalar(1.3) : hsl(212, 0.45, 0.58),
+              toneMapped: false,
+            }),
+          );
+          cap.position.set(x * U, 0.25 + h, z * U);
+          scene.add(cap);
+          if (i === 0) target.cap = cap;
+        });
+        // the beacon at rest over the target block
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 12, 12),
+          new THREE.MeshBasicMaterial({
+            color: AGENT.clone().multiplyScalar(18),
+            toneMapped: false,
+          }),
+        );
+        core.position.set(0, 0.25 + target.h + 1.2, 0);
+        scene.add(core);
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, 1.2, 6),
+          new THREE.MeshBasicMaterial({
+            color: AGENT.clone().multiplyScalar(2),
+            transparent: true,
+            opacity: 0.6,
+            toneMapped: false,
+          }),
+        );
+        stem.position.set(0, 0.25 + target.h + 0.6, 0);
+        scene.add(stem);
+        const spot = new THREE.Mesh(
+          new THREE.CircleGeometry(0.55, 32).rotateX(-Math.PI / 2),
+          add(AGENT, 1.2, 0.3),
+        );
+        spot.position.y = 0.25 + target.h + 0.02;
+        scene.add(spot);
+        const light = new THREE.PointLight(AGENT, 8, 8, 1.7);
+        light.position.copy(core.position);
+        scene.add(light);
+        const tick = opt.build(scene, target);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(400, 460), 0.5, 0.3, 1.0));
+        composer.addPass(new OutputPass());
+        composer.addPass(new SMAAPass());
+        function resize() {
+          const w = view.clientWidth,
+            h = view.clientHeight;
+          renderer.setSize(w, h, false);
+          composer.setSize(w, h);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        }
+        new ResizeObserver(resize).observe(view);
+        resize();
+        const t0 = performance.now();
+        renderer.setAnimationLoop((ts) => {
+          const s = (ts - t0) / 1000;
+          tick(s);
+          const f = target.flash ?? 0;
+          core.scale.setScalar((1 + 0.08 * Math.sin(s * 2.5)) * (1 + 1.6 * f));
+          light.intensity = 8 * (1 + 2.5 * f);
+          spot.material.opacity = 0.3 + 0.5 * f;
+          composer.render();
+        });
+      }
+      options.forEach(build);
+    </script>
+  </body>
+</html>

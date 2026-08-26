@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Strata colour board: accents on a large repo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #101216;
+        color: #c9d1e0;
+        font:
+          13px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 20px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 14px;
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+      h1 small {
+        color: #7c879f;
+        font-weight: 400;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      .card {
+        background: #0b0d12;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 11px;
+        margin: 0;
+        padding: 9px 11px;
+        color: #dfe6f5;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-bottom: 1px solid #1c2130;
+        display: flex;
+        justify-content: space-between;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .card h2 .cur {
+        color: #7c879f;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .view {
+        aspect-ratio: 1 / 1.2;
+        position: relative;
+      }
+      .view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .stats {
+        position: absolute;
+        left: 10px;
+        top: 8px;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.55);
+      }
+      .legend {
+        position: absolute;
+        right: 8px;
+        top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 10px;
+        color: #b5bed2;
+      }
+      .legend span {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .legend i {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+      }
+      .notes {
+        padding: 10px 11px 12px;
+        color: #9aa5bd;
+        font-size: 11.5px;
+      }
+      .notes b {
+        color: #dfe6f5;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Colour board
+      <small id="sub"
+        >(loading the QuartzX.Web2 listing; ?repo=tellmeastory for the small one)</small
+      >
+    </h1>
+    <div class="board" id="board"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+
+      const params = new URLSearchParams(location.search);
+      const repoName = params.get('repo') ?? 'quartzx.web2';
+      await new Promise((res) => {
+        const el = document.createElement('script');
+        el.src = `data/${repoName}.local.js`;
+        el.onload = res;
+        el.onerror = res;
+        document.head.append(el);
+      });
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const U = 1.15,
+        ACC = [212, 28, 95, 160, 280, 350];
+      const MARKERS = ['project.json', 'package.json', 'pyproject.toml'];
+
+      // ---------- countries from the listing, or a synthetic 120-country monorepo ----------
+      function fromListing(files) {
+        const proj = new Set();
+        files.forEach(([id]) => {
+          const s = id.lastIndexOf('/');
+          const n = s === -1 ? id : id.slice(s + 1);
+          if (MARKERS.includes(n)) proj.add(s === -1 ? '' : id.slice(0, s));
+        });
+        const countryOf = (id) => {
+          let d = id;
+          for (;;) {
+            const s = d.lastIndexOf('/');
+            if (s === -1) break;
+            d = d.slice(0, s);
+            if (proj.has(d)) return d;
+          }
+          const t = id.indexOf('/');
+          return t === -1 ? '' : id.slice(0, t);
+        };
+        const map = new Map();
+        files.forEach(([id, size]) => {
+          const c = countryOf(id);
+          const s = id.lastIndexOf('/');
+          const folder = s === -1 ? '' : id.slice(0, s);
+          const d = c === '' ? folder : folder.slice(c.length).replace(/^\//, '');
+          if (!map.has(c)) map.set(c, { name: c || '(root)', districts: new Map() });
+          const C = map.get(c);
+          if (!C.districts.has(d)) C.districts.set(d, []);
+          C.districts.get(d).push(size);
+        });
+        return [...map.values()].map((c) => ({
+          name: c.name,
+          districts: [...c.districts.values()],
+        }));
+      }
+      function synthetic() {
+        let seed = 9;
+        const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        const out = [];
+        for (let i = 0; i < 120; i++) {
+          const fam =
+            i < 22
+              ? 'apps'
+              : i < 105
+                ? 'libs'
+                : ['tools', 'docs', '.github', 'deploy', 'scripts'][i % 5];
+          const nd = 1 + Math.floor(rnd() * rnd() * 14);
+          out.push({
+            name: `${fam}/${fam === 'libs' ? 'lib' : 'app'}-${i}`,
+            districts: Array.from({ length: nd }, () =>
+              Array.from({ length: 1 + Math.floor(rnd() * rnd() * 40) }, () => 500 + rnd() * 20000),
+            ),
+          });
+        }
+        return out;
+      }
+      const base = window.STRATA_REPO ? fromListing(window.STRATA_REPO.files) : synthetic();
+      document.getElementById('sub').textContent =
+        `(${window.STRATA_REPO ? window.STRATA_REPO.name : 'synthetic monorepo'}: ${base.length} countries; same map in every card, only the colour rule differs)`;
+
+      // ---------- packing (as in the product mockup) ----------
+      function packCountry(c) {
+        c.d = c.districts.map((files) => {
+          const cap = Math.max(2, Math.ceil(files.length * 1.2) + 1);
+          const w = Math.max(1, Math.ceil(Math.sqrt(cap) * 1.3));
+          return { w, h: Math.max(1, Math.ceil(cap / w)), files };
+        });
+        let W = Math.max(
+          Math.ceil(Math.sqrt(c.d.reduce((s, d) => s + d.w * d.h, 0)) * 1.1),
+          ...c.d.map((d) => d.w),
+        );
+        const pack = () => {
+          let x = 0,
+            z = 0,
+            rowH = 0;
+          c.d.forEach((d) => {
+            if (x + d.w > W && x > 0) {
+              x = 0;
+              z += rowH + 1;
+              rowH = 0;
+            }
+            d.x = x;
+            d.z = z;
+            rowH = Math.max(rowH, d.h);
+            x += d.w + 1;
+          });
+          c.w = Math.max(...c.d.map((d) => d.x + d.w));
+          c.h = z + rowH;
+        };
+        pack();
+        while (c.h > W * 1.25 && W < 400) {
+          W = Math.ceil(W * 1.2);
+          pack();
+        }
+      }
+      function packMap(countries, order) {
+        const target = Math.ceil(
+          Math.sqrt(order.reduce((s, c) => s + (c.w + 3) * (c.h + 3), 0)) * 1.05,
+        );
+        let cx = 1,
+          cz = 1,
+          rowH = 0;
+        order.forEach((c) => {
+          if (cx + c.w > target && cx > 1) {
+            cx = 1;
+            cz += rowH + 3;
+            rowH = 0;
+          }
+          c.ox = cx;
+          c.oz = cz;
+          rowH = Math.max(rowH, c.h);
+          cx += c.w + 3;
+        });
+        return { W: Math.max(...countries.map((c) => c.ox + c.w)) + 1, H: cz + rowH + 1 };
+      }
+      const family = (name) => {
+        const top = name.split('/')[0];
+        if (top === 'apps') return 'apps';
+        if (top === 'libs') return 'libs';
+        if (top === 'docs' || top === 'kanban') return 'docs';
+        return 'plumbing';
+      };
+      const adjacency = (countries) => {
+        const adj = countries.map(() => new Set());
+        countries.forEach((a, i) =>
+          countries.forEach((b, j) => {
+            if (j <= i) return;
+            const gapX = Math.max(a.ox - (b.ox + b.w), b.ox - (a.ox + a.w)),
+              gapZ = Math.max(a.oz - (b.oz + b.h), b.oz - (a.oz + a.h));
+            if (gapX <= 3 && gapZ <= 3 && !(gapX > 0 && gapZ > 0)) {
+              adj[i].add(j);
+              adj[j].add(i);
+            }
+          }),
+        );
+        return adj;
+      };
+      function greedy(countries, adj, allowed, key) {
+        const order = countries.map((c, i) => i).sort((p, q) => adj[q].size - adj[p].size);
+        order.forEach((i) => {
+          const opts = allowed(countries[i]);
+          const used = new Map();
+          adj[i].forEach((j) => {
+            const k = key(countries[j]);
+            if (k !== undefined) used.set(k, (used.get(k) ?? 0) + 1);
+          });
+          let best = opts[0],
+            bestN = Infinity;
+          opts.forEach((o) => {
+            const n = used.get(o.key) ?? 0;
+            if (n < bestN) {
+              bestN = n;
+              best = o;
+            }
+          });
+          countries[i].accent = best;
+        });
+      }
+      const hash = (s) => {
+        let h = 2166136261;
+        for (const ch of s) {
+          h ^= ch.charCodeAt(0);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      };
+
+      const schemes = [
+        {
+          key: '1',
+          title: 'Six hues by index',
+          cur: 'current',
+          notes:
+            '<b>The ramp cycles in packing order.</b> Every hue lands on a fifth of the plates, neighbours match often, and colour says nothing beyond "not the same plate".',
+          order: (cs) => [...cs].sort((p, q) => q.h - p.h || q.w - p.w),
+          assign: (cs) =>
+            cs.forEach((c, i) => (c.accent = { hue: ACC[i % 6], s: 0.26, l: 0.5, key: i % 6 })),
+        },
+        {
+          key: '2',
+          title: 'Hash per country, six hues',
+          notes:
+            '<b>A hue from the country\'s name.</b> Stable across machines and renames elsewhere, so "my library is orange" survives. But with six hues and 129 countries, twenty share each one and neighbours still collide; identity by colour is an illusion past a dozen.',
+          order: (cs) => [...cs].sort((p, q) => q.h - p.h || q.w - p.w),
+          assign: (cs) =>
+            cs.forEach((c) => {
+              const k = hash(c.name) % 6;
+              c.accent = { hue: ACC[k], s: 0.26, l: 0.5, key: k };
+            }),
+        },
+        {
+          key: '3',
+          title: 'Adjacency colouring, six hues',
+          notes:
+            '<b>Neighbours never match</b>, by greedy colouring on the plate graph. Distinct up close; from far it is confetti with no structure, and colour still identifies nothing.',
+          order: (cs) => [...cs].sort((p, q) => q.h - p.h || q.w - p.w),
+          assign: (cs, adj) =>
+            greedy(
+              cs,
+              adj,
+              () => ACC.map((hue, k) => ({ hue, s: 0.26, l: 0.5, key: k })),
+              (c) => c.accent?.key,
+            ),
+        },
+        {
+          key: '4',
+          title: 'Family bands, neighbours distinct, families clustered',
+          rec: 'recommended',
+          notes:
+            '<b>Hue family from the top-level folder</b> (apps warm, libs cool, docs green, plumbing grey), variants within the band assigned so touching plates differ, and countries packed by family first. From far the map reads "apps there, libraries the big cool mass, plumbing the grey fringe"; up close neighbours stay apart. Identity is position and name, which it always was.',
+          order: (cs) => {
+            const rank = { apps: 0, libs: 1, docs: 2, plumbing: 3 };
+            return [...cs].sort(
+              (p, q) => rank[family(p.name)] - rank[family(q.name)] || q.h - p.h || q.w - p.w,
+            );
+          },
+          assign: (cs, adj) => {
+            const band = { apps: 28, libs: 212, docs: 95, plumbing: null };
+            greedy(
+              cs,
+              adj,
+              (c) => {
+                const f = family(c.name),
+                  b = band[f];
+                const out = [];
+                [-14, 0, 14].forEach((off, i) =>
+                  [0.46, 0.56].forEach((l, j) =>
+                    out.push(
+                      b === null
+                        ? { hue: 220, s: 0.04, l: 0.42 + 0.06 * j + 0.02 * i, key: `${f}${i}${j}` }
+                        : { hue: b + off, s: 0.3, l, key: `${f}${i}${j}` },
+                    ),
+                  ),
+                );
+                return out;
+              },
+              (c) => c.accent?.key,
+            );
+          },
+        },
+      ];
+
+      function build(scheme) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2><span>${scheme.key} · ${scheme.title}</span><span class="${scheme.cur ? 'cur' : 'rec'}">${scheme.cur ?? scheme.rec ?? ''}</span></h2><div class="view"><canvas></canvas><div class="stats"></div><div class="legend"></div></div><div class="notes">${scheme.notes}</div>`;
+        document.getElementById('board').appendChild(card);
+        const countries = base.map((c) => ({ name: c.name, districts: c.districts }));
+        countries.forEach(packCountry);
+        const ext = packMap(countries, scheme.order(countries));
+        const adj = adjacency(countries);
+        scheme.assign(countries, adj);
+        let clashes = 0;
+        adj.forEach((set, i) =>
+          set.forEach((j) => {
+            if (j > i && countries[i].accent.key === countries[j].accent.key) clashes++;
+          }),
+        );
+        card.querySelector('.stats').textContent =
+          `${countries.length} plates · ${clashes} touching pairs share a colour`;
+        if (scheme.key === '4')
+          card.querySelector('.legend').innerHTML = [
+            ['apps', 28, 0.3, 0.5],
+            ['libs', 212, 0.3, 0.5],
+            ['docs', 95, 0.3, 0.5],
+            ['plumbing', 220, 0.04, 0.45],
+          ]
+            .map(
+              ([n, h, s, l]) =>
+                `<span><i style="background:#${hsl(h, s, l).getHexString()}"></i>${n}</span>`,
+            )
+            .join('');
+        const canvas = card.querySelector('canvas'),
+          view = card.querySelector('.view');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2d2f38);
+        const wx = (g) => (g - ext.W / 2) * U,
+          wz = (g) => (g - ext.H / 2) * U;
+        const ground = new THREE.Mesh(
+          new THREE.PlaneGeometry(ext.W * U * 3, ext.H * U * 3),
+          new THREE.MeshStandardMaterial({ color: hsl(228, 0.08, 0.24), roughness: 1 }),
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.3;
+        scene.add(ground);
+        scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const key = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        key.position.set(-0.6, 0.8, 0.4);
+        scene.add(key);
+        const total = countries.reduce(
+          (s, c) => s + c.d.reduce((t, d) => t + d.files.length, 0),
+          0,
+        );
+        const tg = new THREE.BoxGeometry(0.8, 1, 0.8);
+        tg.translate(0, 0.5, 0);
+        const towers = new THREE.InstancedMesh(
+          tg,
+          new THREE.MeshStandardMaterial({ roughness: 0.85 }),
+          total,
+        );
+        scene.add(towers);
+        const m4 = new THREE.Matrix4();
+        let n = 0;
+        countries.forEach((c) => {
+          const a = c.accent;
+          const plate = new THREE.Mesh(
+            new THREE.BoxGeometry((c.w + 1.6) * U, 0.3, (c.h + 1.6) * U),
+            new THREE.MeshStandardMaterial({
+              color: hsl(a.hue, a.s * 0.7, a.l * 0.6),
+              roughness: 0.95,
+            }),
+          );
+          plate.position.set(wx(c.ox + c.w / 2), -0.15, wz(c.oz + c.h / 2));
+          scene.add(plate);
+          c.d.forEach((d) => {
+            const plat = new THREE.Mesh(
+              new THREE.BoxGeometry((d.w + 0.6) * U, 0.25, (d.h + 0.6) * U),
+              new THREE.MeshStandardMaterial({
+                color: hsl(a.hue, a.s * 0.85, a.l * 0.72),
+                roughness: 0.9,
+              }),
+            );
+            plat.position.set(wx(c.ox + d.x + d.w / 2), 0.12, wz(c.oz + d.z + d.h / 2));
+            scene.add(plat);
+            d.files.forEach((size, i) => {
+              const gx = c.ox + d.x + (i % d.w),
+                gz = c.oz + d.z + Math.floor(i / d.w);
+              const h = Math.min(7, 0.4 + Math.log2(1 + size / 400) * 0.9);
+              m4.makeScale(1, h, 1);
+              m4.setPosition(wx(gx + 0.5), 0.25, wz(gz + 0.5));
+              towers.setMatrixAt(n, m4);
+              towers.setColorAt(n, hsl(a.hue, a.s, a.l));
+              n++;
+            });
+          });
+        });
+        towers.count = n;
+        towers.instanceMatrix.needsUpdate = true;
+        towers.instanceColor.needsUpdate = true;
+        const camera = new THREE.PerspectiveCamera(30, 1 / 1.2, 0.1, 4000);
+        const ELEV = THREE.MathUtils.degToRad(38),
+          YAW = THREE.MathUtils.degToRad(15);
+        const dir = new THREE.Vector3(
+          Math.cos(ELEV) * Math.sin(YAW),
+          Math.sin(ELEV),
+          Math.cos(ELEV) * Math.cos(YAW),
+        );
+        const hw = (ext.W * U) / 2 + 2,
+          hd = (ext.H * U) / 2 + 2;
+        const corners = [];
+        for (const x of [-hw, hw])
+          for (const z of [-hd, hd])
+            for (const y of [0, 5]) corners.push(new THREE.Vector3(x, y, z));
+        const target = new THREE.Vector3(0, 0.5, 0);
+        let dist = 200;
+        const aim = (d) => {
+          camera.position.copy(target).add(dir.clone().multiplyScalar(d));
+          camera.lookAt(target);
+          camera.updateMatrixWorld();
+        };
+        const bounds = () => {
+          let minX = 1,
+            maxX = -1,
+            minY = 1,
+            maxY = -1;
+          corners.forEach((c) => {
+            const q = c.clone().project(camera);
+            minX = Math.min(minX, q.x);
+            maxX = Math.max(maxX, q.x);
+            minY = Math.min(minY, q.y);
+            maxY = Math.max(maxY, q.y);
+          });
+          return { minX, maxX, minY, maxY };
+        };
+        function fit() {
+          const forward = dir.clone().negate(),
+            right = new THREE.Vector3()
+              .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+              .normalize(),
+            up = new THREE.Vector3().crossVectors(right, forward).normalize();
+          for (let pass = 0; pass < 3; pass++) {
+            aim(dist);
+            const b = bounds();
+            target
+              .add(
+                right
+                  .clone()
+                  .multiplyScalar(
+                    ((b.minX + b.maxX) / 2) *
+                      Math.tan((camera.fov * Math.PI) / 360) *
+                      camera.aspect *
+                      dist,
+                  ),
+              )
+              .add(
+                up
+                  .clone()
+                  .multiplyScalar(
+                    ((b.minY + b.maxY) / 2) * Math.tan((camera.fov * Math.PI) / 360) * dist,
+                  ),
+              );
+            let lo = 5,
+              hi = 3000;
+            for (let i = 0; i < 24; i++) {
+              const mid = (lo + hi) / 2;
+              aim(mid);
+              const q = bounds();
+              if (Math.max(-q.minX, q.maxX) < 0.94 && Math.max(-q.minY, q.maxY) < 0.9) hi = mid;
+              else lo = mid;
+            }
+            dist = hi;
+          }
+          aim(dist);
+        }
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new OutputPass());
+        composer.addPass(new SMAAPass());
+        function resize() {
+          const cw = view.clientWidth,
+            ch = view.clientHeight;
+          renderer.setSize(cw, ch, false);
+          composer.setSize(cw, ch);
+          camera.aspect = cw / ch;
+          camera.updateProjectionMatrix();
+          fit();
+        }
+        new ResizeObserver(resize).observe(view);
+        resize();
+        renderer.setAnimationLoop(() => composer.render());
+      }
+      schemes.forEach(build);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+node_modules
+dist
+dist-types
+coverage
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+
+npm-debug.log
+yarn-error.log
+
+# Playwright MCP screenshots and stray files written to the root
+.playwright-mcp
+/*.png
+/*.jpeg
+
+.claude/settings.local.json
+.claude/worktrees
+
+# mockup data dumped from other repos
+docs/mockups/data/*.local.js

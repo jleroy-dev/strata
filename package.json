@@ -1,0 +1,37 @@
+{
+  "name": "strata",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An abstract, live 3D view of a codebase: terrain from the repo, weather from the agents working on it",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@strata/web",
+    "dev:server": "npm run dev --workspace=@strata/server",
+    "typecheck": "tsc -b packages/core packages/server packages/web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gate": "npm run typecheck && npm run lint && npm run format:check && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
+  }
+}
