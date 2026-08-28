@@ -11,9 +11,202 @@
         height: 100%;
         background: #0b0d12;
         overflow: hidden;
+        font:
+          12px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #c9cfdb;
       }
       canvas {
         display: block;
+      }
+      .panel {
+        position: fixed;
+        user-select: none;
+        pointer-events: none;
+      }
+      .hud {
+        left: 12px;
+        top: 10px;
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.5);
+        text-shadow: 0 1px 2px #000;
+        white-space: pre;
+      }
+      .hud b {
+        color: #fff;
+        font-weight: 600;
+      }
+      .roster {
+        right: 10px;
+        top: 32px;
+        max-width: calc(100% - 20px);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        pointer-events: auto;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 8px auto auto auto;
+        gap: 8px;
+        align-items: baseline;
+        padding: 4px 9px;
+        background: rgba(6, 8, 12, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 11.5px;
+        backdrop-filter: blur(6px);
+      }
+      .row:hover {
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+      .row.following {
+        border-color: rgba(255, 255, 255, 0.45);
+      }
+      .row .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        box-shadow: 0 0 8px currentColor;
+        background: currentColor;
+        align-self: center;
+      }
+      .row .verb {
+        color: #b5bed2;
+      }
+      .row .where {
+        color: #7c879f;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 180px;
+      }
+      .row .path {
+        grid-column: 1 / -1;
+        color: #8a94ab;
+        font-size: 10.5px;
+        display: none;
+      }
+      .row:hover .path {
+        display: block;
+      }
+      .row.empty {
+        grid-template-columns: auto;
+        color: #8a94ab;
+        cursor: default;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 260px;
+      }
+      .row.empty code {
+        color: #dfe6f5;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0 5px;
+        border-radius: 2px;
+      }
+      .row.warn {
+        border-color: rgba(242, 193, 78, 0.5);
+      }
+      .row.done {
+        opacity: 0.45;
+      }
+      .label {
+        font-size: 11px;
+        color: #fff;
+        text-shadow:
+          0 0 4px #000,
+          0 1px 2px #000;
+        transform: translate(8px, -14px);
+      }
+      .caption {
+        left: 12px;
+        bottom: 66px;
+        background: rgba(6, 8, 12, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 7px 10px;
+        border-radius: 3px;
+        font-size: 11px;
+        max-width: 300px;
+        backdrop-filter: blur(6px);
+        pointer-events: auto;
+      }
+      .caption a {
+        color: #fff;
+        text-decoration: none;
+        word-break: break-all;
+      }
+      .caption .m {
+        color: #9aa5bd;
+        margin-top: 2px;
+      }
+      .strip-back {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 58px;
+        background: linear-gradient(transparent, rgba(4, 5, 8, 0.9) 45%);
+      }
+      .strip {
+        position: fixed;
+        left: 0;
+        bottom: 6px;
+        width: 100%;
+        height: 30px;
+        cursor: ew-resize;
+      }
+      .strip-label {
+        left: 12px;
+        bottom: 40px;
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.5);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .strip-label b {
+        color: #fff;
+        font-weight: 500;
+      }
+      .sim {
+        right: 12px;
+        bottom: 40px;
+        font-size: 10.5px;
+        color: rgba(255, 255, 255, 0.5);
+        display: flex;
+        gap: 12px;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: auto;
+      }
+      .sim a,
+      .sim label {
+        cursor: pointer;
+        color: inherit;
+        text-decoration: none;
+      }
+      .sim a:hover,
+      .sim a.on {
+        color: #fff;
+      }
+      .sim select {
+        background: transparent;
+        color: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        font: inherit;
+        font-size: 10.5px;
+      }
+      .veil {
+        inset: 0;
+        background: rgba(45, 47, 56, 0.35);
+        backdrop-filter: saturate(0.55);
+      }
+      .vignette {
+        inset: 0;
+        background: radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.45) 100%);
       }
     </style>
   </head>

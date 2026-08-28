@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=@strata/web",
-    "dev:server": "npm run dev --workspace=@strata/server",
+    "dev:server": "npm run dev --workspace=@strata/server --",
     "typecheck": "tsc -b packages/core packages/server packages/web",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -22,7 +22,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gate": "npm run typecheck && npm run lint && npm run format:check && npm run test"
+    "gate": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "demo": "node packages/server/dist/main.js demo"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

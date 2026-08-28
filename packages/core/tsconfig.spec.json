@@ -8,6 +8,6 @@
     "declaration": false,
     "lib": ["ES2023"]
   },
-  "include": ["src/**/*.spec.ts"],
+  "include": ["src/**/*.spec.ts", "src/fixtures/**/*.ts"],
   "references": [{ "path": "./tsconfig.lib.json" }]
 }

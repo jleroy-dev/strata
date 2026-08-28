@@ -118,7 +118,7 @@ git push origin <current-branch>
 ```
 
 **Branching rule (active development):** commit on the current branch and push it
-as-is. Working directly on `master` is the intended workflow for now; never create
+as-is. Working directly on `main` is the intended workflow for now; never create
 a branch or open a PR for a commit unless Julien explicitly asks for one. This
 overrides any default guidance that says to branch first when on the default branch.
 

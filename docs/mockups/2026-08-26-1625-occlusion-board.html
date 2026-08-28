@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · occlusion board</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b0d12;
+        color: #c9cfdb;
+        font:
+          13px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      h1 {
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin: 18px 20px 6px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+      p.lead {
+        margin: 0 20px 14px;
+        max-width: 900px;
+        color: #8a94ab;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+        gap: 16px;
+        padding: 0 20px 30px;
+      }
+      .card {
+        background: #12151c;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0;
+        padding: 8px 12px;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #1c2130;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+      }
+      .card h2 .cur {
+        color: #7fb3ff;
+      }
+      .card h2 .no {
+        color: #f2c14e;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 300px;
+      }
+      .notes {
+        padding: 10px 12px 12px;
+        color: #9aa5bd;
+      }
+      .notes b {
+        color: #dfe6f5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Follow · the agent behind towers</h1>
+    <p class="lead">
+      Same scene in every card: a dense district, the camera at the Follow angle (38°, close), the
+      followed agent editing a tower that stands behind three taller ones. The agent breathes; the
+      camera does not move. Drag on a card to orbit it, the effect follows the camera.
+    </p>
+    <div class="board" id="board"></div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(175, 1, 0.6);
+      const TOWER = hsl(212, 0.3, 0.46);
+      const CAP = hsl(212, 0.45, 0.54);
+
+      // one deterministic district: 7 x 6 cells, heights chosen so the subject is walled in
+      const cells = [];
+      let seed = 7;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      for (let z = 0; z < 6; z++)
+        for (let x = 0; x < 7; x++) cells.push({ x, z, h: 0.8 + rnd() * 3.2 });
+      const subject = cells.find((c) => c.x === 4 && c.z === 1);
+      subject.h = 1.4;
+      for (const c of cells) {
+        if (c.z > subject.z && c.z <= 4 && Math.abs(c.x - subject.x) <= 1) c.h = 5 + rnd() * 2;
+      }
+
+      function scene(card, mode) {
+        const canvas = document.createElement('canvas');
+        card.appendChild(canvas);
+        const W = 440,
+          H = 300;
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.setSize(W, H, false);
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.9;
+        const sc = new THREE.Scene();
+        sc.background = new THREE.Color(0x2d2f38);
+        sc.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+        const key = new THREE.DirectionalLight(0xffd9b0, 1.7);
+        key.position.set(-8, 12, 6);
+        sc.add(key);
+        const camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 200);
+        const target = new THREE.Vector3(3.5, 0.5, 2);
+        const elev = THREE.MathUtils.degToRad(38),
+          yaw = THREE.MathUtils.degToRad(15);
+        const dist = 12;
+        camera.position
+          .set(Math.sin(yaw) * Math.cos(elev), Math.sin(elev), Math.cos(yaw) * Math.cos(elev))
+          .multiplyScalar(dist)
+          .add(target);
+        camera.lookAt(target);
+        const controls = new OrbitControls(camera, canvas);
+        controls.target.copy(target);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.1;
+
+        const plat = new THREE.Mesh(
+          new THREE.BoxGeometry(7.6, 0.25, 6.6),
+          new THREE.MeshStandardMaterial({ color: hsl(212, 0.22, 0.36), flatShading: true }),
+        );
+        plat.position.set(3, 0.12, 2.5);
+        sc.add(plat);
+
+        const subjectPos = new THREE.Vector3(subject.x, 0.25 + subject.h, subject.z);
+        const beaconAt = new THREE.Vector3(subject.x, 0.25 + subject.h + 1.2, subject.z);
+
+        const uniforms = {
+          uCenter: { value: new THREE.Vector2() },
+          uRadius: { value: 0.4 },
+          uDepth: { value: 1 },
+          uAspect: { value: W / H },
+          uOn: { value: mode === 'cutout' || mode === 'window' ? 1 : 0 },
+          uBase: { value: new THREE.Vector2() },
+          uSoft: { value: mode === 'window' ? 1 : 0 },
+        };
+        const towerMat = new THREE.MeshStandardMaterial({
+          color: TOWER,
+          roughness: 0.85,
+          metalness: 0.05,
+          flatShading: true,
+        });
+        const patch = (shader) => {
+          Object.assign(shader.uniforms, uniforms);
+          shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying vec4 vClip;')
+            .replace(
+              '#include <project_vertex>',
+              '#include <project_vertex>\nvClip = gl_Position;',
+            );
+          shader.fragmentShader = shader.fragmentShader
+            .replace(
+              '#include <common>',
+              `#include <common>
+                 varying vec4 vClip;
+                 uniform vec2 uCenter; uniform vec2 uBase; uniform float uRadius; uniform float uDepth; uniform float uAspect; uniform float uOn; uniform float uSoft;
+                 float ign(vec2 p){ return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y)); }
+                 float capsule(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * h); }`,
+            )
+            .replace(
+              '#include <dithering_fragment>',
+              `#include <dithering_fragment>
+                 if (uOn > 0.5) {
+                   vec2 ndc = vClip.xy / vClip.w;
+                   vec2 asp = vec2(uAspect, 1.0);
+                   float dist = uSoft > 0.5 ? capsule(ndc * asp, uBase * asp, (uCenter + vec2(0.0, 3.0)) * asp) : length((ndc - uCenter) * asp);
+                   float inFront = step(vClip.w, uDepth - 0.05);
+                   float cut = (1.0 - smoothstep(uRadius * 0.35, uRadius, dist)) * inFront;
+                   if (uSoft > 0.5) { if (cut > 0.02) discard; }
+                   else if (ign(gl_FragCoord.xy) < cut * 0.92) discard;
+                 }`,
+            );
+        };
+        if (mode === 'cutout' || mode === 'window') towerMat.onBeforeCompile = patch;
+        const capMat = new THREE.MeshBasicMaterial({ color: CAP, toneMapped: false });
+        if (mode === 'cutout' || mode === 'window') capMat.onBeforeCompile = patch;
+        const fadeMat = new THREE.MeshStandardMaterial({
+          color: TOWER,
+          roughness: 0.85,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.28,
+          depthWrite: false,
+        });
+        const shellMat = new THREE.ShaderMaterial({
+          uniforms,
+          transparent: true,
+          depthWrite: false,
+          vertexShader:
+            'varying vec4 vClip; varying vec3 vN; void main(){ vN = normalMatrix * normal; vClip = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = vClip; }',
+          fragmentShader: `varying vec4 vClip; varying vec3 vN;
+            uniform vec2 uCenter; uniform vec2 uBase; uniform float uRadius; uniform float uDepth; uniform float uAspect;
+            float capsule(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * h); }
+            void main(){
+              vec2 ndc = vClip.xy / vClip.w; vec2 asp = vec2(uAspect, 1.0);
+              float dist = capsule(ndc * asp, uBase * asp, (uCenter + vec2(0.0, 3.0)) * asp);
+              float inFront = step(vClip.w, uDepth - 0.05);
+              float cut = (1.0 - smoothstep(uRadius * 0.35, uRadius, dist)) * inFront;
+              if (cut <= 0.02) discard;
+              float shade = 0.55 + 0.45 * max(0.0, normalize(vN).y);
+              vec3 col = vec3(0.47, 0.55, 0.64) * shade;
+              float k = 1.0 - cut;
+              gl_FragColor = vec4(col, 0.1 + 0.9 * k * k);
+            }`,
+        });
+        const towers = [];
+        for (const c of cells) {
+          const isSubject = c === subject;
+          const m = new THREE.Mesh(new THREE.BoxGeometry(0.8, c.h, 0.8), towerMat);
+          m.position.set(c.x, 0.25 + c.h / 2, c.z);
+          sc.add(m);
+          if (mode === 'window') {
+            const shell = new THREE.Mesh(m.geometry, shellMat);
+            shell.position.copy(m.position);
+            shell.renderOrder = 8;
+            sc.add(shell);
+          }
+          const cap = new THREE.Mesh(
+            new THREE.BoxGeometry(0.84, 0.06, 0.84),
+            new THREE.MeshBasicMaterial({
+              color: isSubject ? AGENT.clone().multiplyScalar(4) : CAP,
+              toneMapped: false,
+            }),
+          );
+          cap.position.set(c.x, 0.25 + c.h + 0.03, c.z);
+          sc.add(cap);
+          if (mode === 'window' && !isSubject) {
+            const capShell = new THREE.Mesh(cap.geometry, shellMat);
+            capShell.position.copy(cap.position);
+            capShell.renderOrder = 8;
+            sc.add(capShell);
+          }
+          towers.push({ m, cap, c });
+        }
+
+        // the beacon: halo through everything (as today), core and stem depth tested
+        const haloTex = (() => {
+          const cv = document.createElement('canvas');
+          cv.width = cv.height = 128;
+          const g = cv.getContext('2d');
+          const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+          gr.addColorStop(0, 'rgba(255,255,255,1)');
+          gr.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+          gr.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = gr;
+          g.fillRect(0, 0, 128, 128);
+          return new THREE.CanvasTexture(cv);
+        })();
+        const halo = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: haloTex,
+            color: AGENT.clone().multiplyScalar(2.5),
+            sizeAttenuation: false,
+            depthTest: false,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+          }),
+        );
+        halo.scale.setScalar(0.06);
+        halo.renderOrder = 10;
+        sc.add(halo);
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.09, 12, 12),
+          new THREE.MeshBasicMaterial({
+            color: AGENT.clone().multiplyScalar(6),
+            toneMapped: false,
+          }),
+        );
+        sc.add(core);
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, 1, 6),
+          new THREE.MeshBasicMaterial({
+            color: AGENT,
+            transparent: true,
+            opacity: 0.6,
+            toneMapped: false,
+          }),
+        );
+        sc.add(stem);
+        const light = new THREE.PointLight(AGENT, 8, 6, 1.7);
+        sc.add(light);
+
+        // silhouette: the subject tower and cap redrawn through occluders
+        if (mode === 'silhouette') {
+          const ghost = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, subject.h, 0.8),
+            new THREE.MeshBasicMaterial({
+              color: AGENT.clone().multiplyScalar(0.35),
+              transparent: true,
+              opacity: 0.55,
+              depthTest: false,
+              blending: THREE.AdditiveBlending,
+              toneMapped: false,
+            }),
+          );
+          ghost.position.copy(subjectPos).setY(0.25 + subject.h / 2);
+          ghost.renderOrder = 9;
+          sc.add(ghost);
+        }
+
+        const ray = new THREE.Raycaster();
+        function frame(t) {
+          controls.update();
+          const breathe = 1 + 0.08 * Math.sin(t / 400);
+          core.position.copy(beaconAt);
+          halo.position.copy(beaconAt);
+          halo.scale.setScalar(0.06 * breathe);
+          stem.position.copy(subjectPos).setY(subjectPos.y + 0.6);
+          stem.scale.y = 1.2;
+          light.position.copy(beaconAt);
+
+          if (mode === 'fade' || mode === 'tilt') {
+            const dir = new THREE.Vector3().subVectors(beaconAt, camera.position);
+            const len = dir.length();
+            ray.set(camera.position, dir.normalize());
+            ray.far = len;
+            const hits = new Set(ray.intersectObjects(towers.map((x) => x.m)).map((h) => h.object));
+            for (const tw of towers)
+              tw.m.material = hits.has(tw.m) && mode === 'fade' ? fadeMat : towerMat;
+            if (mode === 'tilt' && hits.size) {
+              // Diablo: raise the eye until the line is clear
+              const up = camera.position.clone().sub(controls.target);
+              const sph = new THREE.Spherical().setFromVector3(up);
+              sph.phi = Math.max(0.35, sph.phi - 0.01);
+              camera.position.setFromSpherical(sph).add(controls.target);
+            }
+          }
+          if (mode === 'cutout' || mode === 'window') {
+            const p = beaconAt.clone().project(camera);
+            uniforms.uCenter.value.set(p.x, p.y);
+            const b = new THREE.Vector3(subject.x, 0.25, subject.z).project(camera);
+            uniforms.uBase.value.set(b.x, b.y);
+            uniforms.uDepth.value = beaconAt.clone().applyMatrix4(camera.matrixWorldInverse).z * -1;
+          }
+          renderer.render(sc, camera);
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+
+      const cards = [
+        {
+          key: 'A',
+          mode: 'plain',
+          title: 'As it is · halo through everything',
+          tag: ['cur', 'current'],
+          notes:
+            'The halo sprite ignores depth, so the <b>light</b> shows through towers. The tower being edited, its lit cap, the spot and the strike do not. You know the agent is there; you cannot see what it does.',
+        },
+        {
+          key: 'B',
+          mode: 'silhouette',
+          title: 'Silhouette · the subject drawn through occluders',
+          tag: ['', ''],
+          notes:
+            'The subject tower is redrawn as an additive ghost with depth off (the RTS/MOBA answer for units behind buildings). Cheap and always legible, but a ghost box on top of another box reads as a glitch here: our subject is a tower among towers, not a character among walls.',
+        },
+        {
+          key: 'C',
+          mode: 'cutout',
+          title: 'Dither cutout · a hole you look through',
+          tag: ['', ''],
+          notes:
+            "Baldur's Gate 3's answer: a screen-space disc around the beacon is dithered out of every tower that is <b>closer to the camera than the beacon</b>; the subject, its cap, its ground and neighbours behind it stay untouched. Stochastic (no sorting, works per instance), feathered edge, eased in and out. Nothing moves; the spectator vocabulary.",
+        },
+        {
+          key: 'D',
+          mode: 'fade',
+          title: 'Alpha fade · occluders go translucent',
+          tag: ['no', 'refused'],
+          notes:
+            'Towers on the eye-to-agent line drop to 28% opacity. Reads well at first glance, but alpha-blended instanced towers sort wrongly against each other and against the additive light, and a translucent tower looks like a different <b>kind</b> of tower, which colour and height are not allowed to mean.',
+        },
+        {
+          key: 'E',
+          mode: 'tilt',
+          title: 'Camera tilts up until clear',
+          tag: ['no', 'refused'],
+          notes:
+            'The Diablo answer: raise the eye while the line is blocked. The camera never rests in a dense district and the angle stops meaning anything; DESIGN fixes 38° and forbids a camera that moves on its own.',
+        },
+      ];
+      for (const c of cards) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2><span>${c.key} · ${c.title}</span><span class="${c.tag[0]}">${c.tag[1]}</span></h2>`;
+        document.getElementById('board').appendChild(card);
+        scene(card, c.mode);
+        const n = document.createElement('div');
+        n.className = 'notes';
+        n.innerHTML = c.notes;
+        card.appendChild(n);
+      }
+    </script>
+  </body>
+</html>

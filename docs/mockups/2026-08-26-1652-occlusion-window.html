@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · occlusion window</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b0d12;
+        color: #c9cfdb;
+        font:
+          13px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      h1 {
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin: 18px 20px 6px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+      p.lead {
+        margin: 0 20px 14px;
+        max-width: 960px;
+        color: #8a94ab;
+      }
+      .stage {
+        position: relative;
+        margin: 0 20px;
+        width: 960px;
+        height: 600px;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+      .knobs {
+        margin: 12px 20px 30px;
+        display: grid;
+        grid-template-columns: repeat(4, 220px);
+        gap: 10px 24px;
+        max-width: 960px;
+      }
+      .knobs label {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: #9aa5bd;
+      }
+      .knobs input[type='range'] {
+        width: 110px;
+      }
+      .knobs b {
+        color: #dfe6f5;
+        font-weight: 500;
+      }
+      .notes {
+        margin: 0 20px 30px;
+        max-width: 960px;
+        color: #9aa5bd;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Follow · the soft window, done properly</h1>
+    <p class="lead">
+      A dense district, the Follow angle, the followed agent editing a tower walled in by taller
+      ones. Drag to orbit. Which towers are occluders is decided per tower on the ground (between
+      the eye and the subject, with hysteresis, eased over 250 ms); where the window opens is
+      decided per pixel (a soft band from the subject's foot up past its beacon). The faded parts
+      keep their own lighting.
+    </p>
+    <div class="stage" id="stage"></div>
+    <div class="knobs">
+      <label
+        >band half-width
+        <input id="width" type="range" min="0.5" max="4" step="0.1" value="1.6" /><b
+          id="width-v"
+        ></b
+      ></label>
+      <label
+        >rim feather <input id="feather" type="range" min="0.1" max="2" step="0.1" value="0.9" /><b
+          id="feather-v"
+        ></b
+      ></label>
+      <label
+        >alpha at centre
+        <input id="alpha" type="range" min="0" max="0.6" step="0.02" value="0.12" /><b
+          id="alpha-v"
+        ></b
+      ></label>
+      <label
+        >ease ms <input id="ease" type="range" min="0" max="800" step="50" value="250" /><b
+          id="ease-v"
+        ></b
+      ></label>
+      <label>show mask <input id="mask" type="checkbox" /></label>
+      <label>show occluders <input id="occ" type="checkbox" /></label>
+      <label>agent walks <input id="walk" type="checkbox" checked /></label>
+    </div>
+    <div class="notes" id="notes"></div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(175, 1, 0.6);
+      const TOWER = hsl(212, 0.3, 0.46);
+      const CAP = hsl(212, 0.45, 0.54);
+      const W = 960,
+        H = 600;
+      const knob = (id) => document.getElementById(id);
+      const val = (id) => Number(knob(id).value);
+      const show = () => {
+        for (const id of ['width', 'feather', 'alpha', 'ease'])
+          knob(`${id}-v`).textContent = knob(id).value;
+      };
+      for (const id of ['width', 'feather', 'alpha', 'ease'])
+        knob(id).addEventListener('input', show);
+      show();
+
+      const cells = [];
+      let seed = 7;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      for (let z = 0; z < 8; z++)
+        for (let x = 0; x < 10; x++) cells.push({ x, z, h: 0.8 + rnd() * 3.4 });
+      const route = [
+        cells.find((c) => c.x === 5 && c.z === 2),
+        cells.find((c) => c.x === 2 && c.z === 3),
+        cells.find((c) => c.x === 7 && c.z === 1),
+      ];
+      for (const s of route) s.h = 1.4;
+      for (const c of cells)
+        if (c.z >= 3 && c.z <= 6 && !route.includes(c) && rnd() < 0.6) c.h = 4.5 + rnd() * 2.5;
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(W, H);
+      renderer.toneMapping = THREE.AgXToneMapping;
+      renderer.toneMappingExposure = 0.9;
+      document.getElementById('stage').appendChild(renderer.domElement);
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x2d2f38);
+      scene.add(new THREE.HemisphereLight(0xb9c4d8, 0x4a3f38, 0.8));
+      const key = new THREE.DirectionalLight(0xffd9b0, 1.7);
+      key.position.set(-8, 12, 6);
+      scene.add(key);
+      const camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 200);
+      const target = new THREE.Vector3(4.5, 0.5, 3);
+      const elev = THREE.MathUtils.degToRad(38),
+        yaw = THREE.MathUtils.degToRad(15);
+      camera.position
+        .set(Math.sin(yaw) * Math.cos(elev), Math.sin(elev), Math.cos(yaw) * Math.cos(elev))
+        .multiplyScalar(15)
+        .add(target);
+      camera.lookAt(target);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.copy(target);
+      controls.enableDamping = true;
+      controls.maxPolarAngle = Math.PI / 2.1;
+
+      const plat = new THREE.Mesh(
+        new THREE.BoxGeometry(10.6, 0.25, 8.6),
+        new THREE.MeshStandardMaterial({ color: hsl(212, 0.22, 0.36), flatShading: true }),
+      );
+      plat.position.set(4.5, 0.12, 3.5);
+      scene.add(plat);
+
+      // ---- the window: per-tower cut (instance attribute) x per-pixel band (uniforms) ----
+      const uniforms = {
+        uBase: { value: new THREE.Vector2() },
+        uTop: { value: new THREE.Vector2() },
+        uHalf: { value: 0.2 },
+        uFeather: { value: 0.1 },
+        uAspect: { value: W / H },
+        uAlpha: { value: 0.12 },
+        uShowMask: { value: 0 },
+      };
+      const maskGlsl = `
+        uniform vec2 uBase; uniform vec2 uTop; uniform float uHalf; uniform float uFeather; uniform float uAspect; uniform float uAlpha; uniform float uShowMask;
+        varying vec4 vClip; varying float vCut;
+        float capsule(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * h); }
+        float windowAt(){
+          vec2 ndc = vClip.xy / vClip.w; vec2 asp = vec2(uAspect, 1.0);
+          float d = capsule(ndc * asp, uBase * asp, uTop * asp);
+          float band = 1.0 - smoothstep(uHalf, uHalf + uFeather, d);
+          return band * vCut;
+        }`;
+      const patch = (shader, shell) => {
+        Object.assign(shader.uniforms, uniforms);
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nattribute float cut; varying vec4 vClip; varying float vCut;',
+          )
+          .replace(
+            '#include <project_vertex>',
+            '#include <project_vertex>\nvClip = gl_Position; vCut = cut;',
+          );
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\n' + maskGlsl)
+          .replace(
+            '#include <dithering_fragment>',
+            shell
+              ? `#include <dithering_fragment>
+                 float w = windowAt();
+                 if (w <= 0.001) discard;
+                 gl_FragColor.a = mix(1.0, uAlpha, w);
+                 if (uShowMask > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.4, 0.2), 0.5 * w);`
+              : `#include <dithering_fragment>
+                 float w = windowAt();
+                 if (w > 0.001) discard;`,
+          );
+      };
+      const solid = (color, basic) => {
+        const m = basic
+          ? new THREE.MeshBasicMaterial({ color, toneMapped: false })
+          : new THREE.MeshStandardMaterial({
+              color,
+              roughness: 0.85,
+              metalness: 0.05,
+              flatShading: true,
+            });
+        m.onBeforeCompile = (s) => patch(s, false);
+        return m;
+      };
+      const shellOf = (color, basic) => {
+        const m = basic
+          ? new THREE.MeshBasicMaterial({
+              color,
+              toneMapped: false,
+              transparent: true,
+              depthWrite: false,
+            })
+          : new THREE.MeshStandardMaterial({
+              color,
+              roughness: 0.85,
+              metalness: 0.05,
+              flatShading: true,
+              transparent: true,
+              depthWrite: false,
+            });
+        m.onBeforeCompile = (s) => patch(s, true);
+        return m;
+      };
+
+      const N = cells.length;
+      const towerGeo = new THREE.BoxGeometry(0.8, 1, 0.8);
+      towerGeo.translate(0, 0.5, 0);
+      const capGeo = new THREE.BoxGeometry(0.84, 0.06, 0.84);
+      const cutAttr = new THREE.InstancedBufferAttribute(new Float32Array(N), 1);
+      cutAttr.setUsage(THREE.DynamicDrawUsage);
+      const towers = new THREE.InstancedMesh(towerGeo, solid(TOWER, false), N);
+      const caps = new THREE.InstancedMesh(capGeo, solid(CAP, true), N);
+      const towerShell = new THREE.InstancedMesh(towerGeo, shellOf(TOWER, false), N);
+      const capShell = new THREE.InstancedMesh(capGeo, shellOf(CAP, true), N);
+      for (const m of [towers, caps, towerShell, capShell]) {
+        m.geometry = m.geometry.clone();
+        m.geometry.setAttribute('cut', cutAttr);
+        m.frustumCulled = false;
+        scene.add(m);
+      }
+      towerShell.renderOrder = capShell.renderOrder = 8;
+      const m4 = new THREE.Matrix4();
+      const capColor = new THREE.Color();
+      cells.forEach((c, i) => {
+        m4.makeScale(1, c.h, 1);
+        m4.setPosition(c.x, 0.25, c.z);
+        towers.setMatrixAt(i, m4);
+        towerShell.setMatrixAt(i, m4);
+        m4.makeScale(1, 1, 1);
+        m4.setPosition(c.x, 0.25 + c.h + 0.03, c.z);
+        caps.setMatrixAt(i, m4);
+        capShell.setMatrixAt(i, m4);
+        caps.setColorAt(i, capColor.copy(CAP));
+        capShell.setColorAt(i, capColor.copy(CAP));
+      });
+
+      // beacon
+      const haloTex = (() => {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 128;
+        const g = cv.getContext('2d');
+        const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+        gr.addColorStop(0, 'rgba(255,255,255,1)');
+        gr.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+        gr.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = gr;
+        g.fillRect(0, 0, 128, 128);
+        return new THREE.CanvasTexture(cv);
+      })();
+      const halo = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: haloTex,
+          color: AGENT.clone().multiplyScalar(2.5),
+          sizeAttenuation: false,
+          depthTest: false,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        }),
+      );
+      halo.scale.setScalar(0.05);
+      halo.renderOrder = 10;
+      scene.add(halo);
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.09, 12, 12),
+        new THREE.MeshBasicMaterial({ color: AGENT.clone().multiplyScalar(6), toneMapped: false }),
+      );
+      scene.add(core);
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, 1, 6),
+        new THREE.MeshBasicMaterial({
+          color: AGENT,
+          transparent: true,
+          opacity: 0.6,
+          toneMapped: false,
+        }),
+      );
+      scene.add(stem);
+      const light = new THREE.PointLight(AGENT, 8, 6, 1.7);
+      scene.add(light);
+
+      // ---- per-tower occluder decision, with hysteresis and easing ----
+      const cut = new Float32Array(N);
+      const targetCut = new Float32Array(N);
+      const forward = new THREE.Vector3();
+      const tmp = new THREE.Vector3();
+      let subjectIndex = cells.indexOf(route[0]);
+      let subjectPos = new THREE.Vector3(route[0].x, 0, route[0].z);
+      let lastSwitch = 0;
+      let hop = 0;
+
+      function decide(now, dt) {
+        const subject = cells[subjectIndex];
+        const subjectXZ = new THREE.Vector2(subjectPos.x, subjectPos.z);
+        camera.getWorldDirection(forward);
+        const fwd = new THREE.Vector2(forward.x, forward.z).normalize();
+        const eye = new THREE.Vector2(camera.position.x, camera.position.z);
+        const subjectAlong = subjectXZ.clone().sub(eye).dot(fwd);
+        const base = new THREE.Vector3(subjectPos.x, 0.25, subjectPos.z).project(camera);
+        const top = new THREE.Vector3(subjectPos.x, 0.25 + subject.h + 1.4, subjectPos.z).project(
+          camera,
+        );
+        uniforms.uBase.value.set(base.x, base.y);
+        uniforms.uTop.value.set(top.x, top.y + 0.35);
+        // screen-space half width from world units: project a point one unit to the side of the subject
+        const side = new THREE.Vector3(subjectPos.x, 0.25 + subject.h / 2, subjectPos.z)
+          .add(
+            tmp.set(camera.matrixWorld.elements[0], 0, camera.matrixWorld.elements[2]).normalize(),
+          )
+          .project(camera);
+        const mid = new THREE.Vector3(subjectPos.x, 0.25 + subject.h / 2, subjectPos.z).project(
+          camera,
+        );
+        const perUnit = Math.hypot((side.x - mid.x) * (W / H), side.y - mid.y);
+        uniforms.uHalf.value = perUnit * val('width');
+        uniforms.uFeather.value = perUnit * val('feather');
+        uniforms.uAlpha.value = val('alpha');
+        uniforms.uShowMask.value = knob('mask').checked ? 1 : 0;
+        const band = new THREE.Vector2(base.x, base.y);
+        const bandTop = new THREE.Vector2(top.x, top.y + 0.35);
+        const asp = new THREE.Vector2(W / H, 1);
+        const capsule = (p, a, b) => {
+          const pa = p.clone().sub(a),
+            ba = b.clone().sub(a);
+          const h = THREE.MathUtils.clamp(pa.dot(ba) / Math.max(ba.dot(ba), 1e-6), 0, 1);
+          return pa.sub(ba.multiplyScalar(h)).length();
+        };
+        const k = val('ease') > 0 ? 1 - Math.pow(0.02, dt / (val('ease') / 1000)) : 1;
+        cells.forEach((c, i) => {
+          if (i === subjectIndex) {
+            targetCut[i] = 0;
+          } else {
+            const along = new THREE.Vector2(c.x, c.z).sub(eye).dot(fwd);
+            const inFront =
+              targetCut[i] > 0.5 ? along < subjectAlong + 0.2 : along < subjectAlong - 0.4;
+            const centre = new THREE.Vector3(c.x, 0.25 + c.h / 2, c.z).project(camera);
+            const d = capsule(
+              new THREE.Vector2(centre.x, centre.y).multiply(asp),
+              band.clone().multiply(asp),
+              bandTop.clone().multiply(asp),
+            );
+            const reach = uniforms.uHalf.value + uniforms.uFeather.value + perUnit * 0.6;
+            targetCut[i] = inFront && d < reach ? 1 : 0;
+          }
+          cut[i] += (targetCut[i] - cut[i]) * k;
+          if (Math.abs(cut[i] - targetCut[i]) < 0.002) cut[i] = targetCut[i];
+          cutAttr.array[i] = cut[i];
+          if (knob('occ').checked)
+            caps.setColorAt(i, capColor.copy(CAP).lerp(new THREE.Color(1, 0.4, 0.2), cut[i]));
+          else caps.setColorAt(i, capColor.copy(CAP));
+        });
+        caps.setColorAt(subjectIndex, capColor.copy(AGENT).multiplyScalar(4));
+        cutAttr.needsUpdate = true;
+        caps.instanceColor.needsUpdate = true;
+      }
+
+      let last = performance.now();
+      function frame(now) {
+        const dt = Math.min(0.1, (now - last) / 1000);
+        last = now;
+        controls.update();
+        if (knob('walk').checked && now - lastSwitch > 6000) {
+          lastSwitch = now;
+          hop = (hop + 1) % route.length;
+          subjectIndex = cells.indexOf(route[hop]);
+        }
+        const s = cells[subjectIndex];
+        subjectPos.lerp(new THREE.Vector3(s.x, 0, s.z), 1 - Math.pow(0.02, dt));
+        const beaconAt = new THREE.Vector3(subjectPos.x, 0.25 + s.h + 1.2, subjectPos.z);
+        core.position.copy(beaconAt);
+        halo.position.copy(beaconAt);
+        halo.scale.setScalar(0.05 * (1 + 0.08 * Math.sin(now / 400)));
+        stem.position.set(subjectPos.x, 0.25 + s.h + 0.6, subjectPos.z);
+        stem.scale.y = 1.2;
+        light.position.copy(beaconAt);
+        decide(now, dt);
+        renderer.render(scene, camera);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+      document.getElementById('notes').innerHTML =
+        '<b>What to look at.</b> Orbit around: towers behind the subject never fade, whatever their height. Towers in front fade only inside the band, over their full height, in their own lighting; the rim is a gradient. When the agent hops (every 6 s), the old occluders ease back and the new ones ease in. The mask and occluder toggles paint the decision so it can be judged separately from the look.';
+    </script>
+  </body>
+</html>

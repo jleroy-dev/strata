@@ -177,8 +177,8 @@ has left.
 - Travel: an agent does not teleport between blocks. Its light leaves the tower, takes the
   streets (never through a tower: a Manhattan route along the gutters, alleys between towers
   at a cost, avenues preferred), and lands on the next tower; the block lights on landing.
-  Behind it a ribbon in its colour lies on the street and fades over about 45 seconds. A
-  session's last minutes read as a path, and a refactor across two countries as a trip.
+  Behind it a ribbon in its colour lies on the street and fades over about two seconds, tail
+  first, so the light reads as a comet. A refactor across two countries reads as a trip.
   A hop within a district is a blink, an avenue crossing a glance: the trip is animation, not
   latency, and the event is already in the log when the light sets off.
 - Everything eases, nothing teleports, and a burst of 200 events is not 200 animations:
@@ -209,6 +209,67 @@ Steeper reads as a floor plan, flatter hides districts behind towers. Follow use
 angle over one district, framing the whole district including its tallest tower, the agent's
 position biasing the frame only a little; the agent stays in view because the district does.
 `F` frames the selection at that angle.
+
+In Follow, the towers between the eye and the followed block open a soft window: which towers
+is decided per tower on the ground (between the eye and the subject, with hysteresis, eased
+over a quarter second), where the window opens is decided per pixel (a soft band from the
+block's foot up past its beacon), and the opened parts keep their own lighting at a low
+alpha. Nothing behind the subject ever fades, platforms and plates never do, and the camera
+does not move for it. Mockup: `docs/mockups/2026-08-26-1652-occlusion-window.html`.
+
+## Layout
+
+Deterministic and stable. The same repo state draws the same picture on every machine, and a
+change repositions only what changed. Every block is one cell on an integer lattice; a
+district is a rectangle of cells with about 20% spare, a country a shelf of districts, the map
+a shelf of countries. Districts and countries are placed once and re-packed only on
+structural change, with animated transitions. Force-directed layouts are refused: they never
+settle and they reorder on every change, which destroys "I know where things live".
+Stability beats beauty. A treemap is refused for the same reason: it re-flows every sibling
+on every insert, and a footprint that reads size says twice what height already says.
+
+Slots are sticky and districts keep slack. A block holds its cell for as long as it exists;
+a renamed file keeps its cell; an arriving file takes the first free cell; a removed file
+leaves its cell free, and the scar is that empty cell. Every district is packed with about
+20% headroom, so arrivals fill holes and spare cells before anything has to grow. When slack
+runs out the district grows by one column or one row: the platform widens and nothing on it
+moves. A platform arriving in a country or leaving it re-shelves that country's platforms,
+in their existing order and at the plate's current width, so rows close and the newcomer
+joins the last row: an explicit, animated event, the one the eye is meant to follow on a
+folder move. Only when the plate no longer fits where it stands does it relocate to the
+nearest free ground, rarer still; the other plates never move for it. An emptied district's platform goes with its files: it flies on a folder move and
+fades to a scar on deletion, and an emptied country's plate goes the same way; nothing else
+moves for it. Order
+inside a district means nothing; nobody reads order off a grid.
+
+When ground re-packs, the light lying on it goes with it: ribbon segments inside the repacked
+area dissolve over about half a second as the streets move. Carrying them along would invent
+a trip nobody made, and leaving them would put light on ground that is no longer there. The
+timeline keeps the record.
+
+The country grid aims for a square. That is the one constraint the panel puts on the layout:
+Overview frames the whole map in a narrow panel, and a repo laid out as a strip is a strip of
+empty space. Each shelf is packed at the width, among a dozen candidates around the square
+root of its area, whose result is closest to square. The layout stays a pure function of the
+repo; it is only steered towards a compact shape. Minimum block size on screen is the
+camera's problem, not the layout's.
+
+## Camera framing
+
+Overview sits at about 38 degrees of elevation, yawed 15 degrees so streets run slightly
+off-axis without the map's footprint turning into a diamond that wastes the panel's width, at
+the distance that fits the map's bounding box in the panel with a small margin.
+Steeper reads as a floor plan, flatter hides districts behind towers. Follow uses the same
+angle over one district, framing the whole district including its tallest tower, the agent's
+position biasing the frame only a little; the agent stays in view because the district does.
+`F` frames the selection at that angle.
+
+In Follow, the towers between the eye and the followed block open a soft window: which towers
+is decided per tower on the ground (between the eye and the subject, with hysteresis, eased
+over a quarter second), where the window opens is decided per pixel (a soft band from the
+block's foot up past its beacon), and the opened parts keep their own lighting at a low
+alpha. Nothing behind the subject ever fades, platforms and plates never do, and the camera
+does not move for it. Mockup: `docs/mockups/2026-08-26-1652-occlusion-window.html`.
 
 ## Layout
 

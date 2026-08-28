@@ -1,5 +1,7 @@
 # strata
 
+https://github.com/jleroy-dev/strata
+
 An abstract, live 3D view of a codebase. The repo is the terrain: workspace projects are land
 plates, folders are platforms, files are towers, imports are roads. The agents working on it are
 the weather: a Claude Code session is a light that rests on what it reads and pulses on what it

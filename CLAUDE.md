@@ -20,7 +20,7 @@ disk), `web` (Vite + three, reads one event stream), `vscode` (milestone two, dr
 
 ## Agreements (long form in ENGINEERING_NOTES §4)
 
-- Commit and push only when Julien asks for it, in that turn, straight to `master`. Stage by
+- Commit and push only when Julien asks for it, in that turn, straight to `main`. Stage by
   path, never `git add -A`.
 - Visual decisions go through a mockup in `docs/mockups/` and a recommendation; wait for the
   pick. Mockups are named `YYYY-MM-DD-HHMM-<name>.html`, the time being their creation.

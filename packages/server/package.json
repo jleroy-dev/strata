@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@strata/core": "*",
-    "chokidar": "5.0.0",
     "ws": "8.21.3"
   },
   "devDependencies": {
