@@ -1,33 +1,37 @@
 import * as THREE from 'three';
 import {
   BREATH_MS,
+  COUNTRY_SKIRT,
+  DISTRICT_SKIRT,
   FLOCK_STAGGER_MS,
   RIBBON_RETRACT_MS,
   RISE_MS,
   SCAR_MS,
   SINK_MS,
   flightFor,
+  repoOfName,
   type BlockId,
   type Cell,
   type Layout,
   type Memory,
   type Motion,
+  type CountryPlate,
   type Rect,
 } from '@strata/core';
-import type { Effects } from './effects.js';
+import type { Effects, Frame } from './effects.js';
 import { Flights, flightPose, type FlightPath } from './flights.js';
 import { Instances } from './instances.js';
+import { SETTLE_MIN, countryKey, districtKey, landKey, type Settling } from './settle.js';
+import { shadeGeometry, shadeMesh } from './shade.js';
+import { slabIndices } from './slab.js';
 import type { Ribbons } from './ribbons.js';
-import type { Stage } from './stage.js';
+import type { Surface } from './surface.js';
 import {
   CAP_HEIGHT,
-  PLATE_HEIGHT,
-  PLATE_Y,
-  PLATFORM_HEIGHT,
+  GROUND,
   PLATFORM_LIFT,
-  PLATFORM_Y,
+  SHADE,
   TOWER,
-  U,
   WINDOW,
   accentOf,
   paint,
@@ -55,6 +59,7 @@ interface Flight {
   silent: boolean;
 }
 
+/** `pos` is flat: a continent cell with a height, and `country` says which continent. */
 interface View {
   id: BlockId;
   index: number;
@@ -76,12 +81,14 @@ interface View {
 
 interface Plate {
   mesh: THREE.Mesh;
-  rim?: THREE.LineSegments;
-  at: Rect;
-  to: Rect;
-  lift: number;
-  y: number;
-  pad: number;
+  rim?: THREE.LineLoop;
+  shade: THREE.Mesh;
+  country: string;
+  built: Rect;
+  top: number;
+  bottom: number;
+  skirt: number;
+  shadeAt: number;
   flight?: FlightPath;
   gone?: boolean;
 }
@@ -95,18 +102,18 @@ interface Scar {
 const box = new THREE.BoxGeometry(1, 1, 1);
 const capGeometry = new THREE.BoxGeometry(TOWER + 0.04, CAP_HEIGHT, TOWER + 0.04);
 const halfCapGeometry = new THREE.BoxGeometry((TOWER + 0.04) / 2, CAP_HEIGHT, TOWER + 0.04);
-const rimGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 0.02, 1));
-const scarGeometry = new THREE.PlaneGeometry(1, 1);
+const scarGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 const SCAR_COLOR = 0x1e2028;
 const PLUMBING: Accent = { hue: 220, s: 0.04, l: 0.42 };
-const SETTLE_DECAY = 0.02;
+const UP = new THREE.Vector3(0, 1, 0);
 
-/** Towers, caps, platforms and plates, animated from motions and painted from memory. */
+/** Towers, caps, platforms and plates of one planet, in its group's cell units. */
 export class Terrain {
   readonly flights: Flights;
   private views = new Map<BlockId, View>();
   private plates = new Map<string, Plate>();
   private scars: Scar[] = [];
+  private admitted = new Set<string>();
   private readonly towers: Instances;
   private readonly caps: Instances;
   private readonly halfCaps: THREE.InstancedMesh;
@@ -114,26 +121,34 @@ export class Terrain {
   private readonly scarGroup = new THREE.Group();
   private layout: Layout | undefined;
   private readonly m = new THREE.Matrix4();
+  private readonly q = new THREE.Quaternion();
+  private readonly s = new THREE.Vector3();
   private readonly base = new THREE.Color();
   private readonly cap = new THREE.Color();
   private readonly other = new THREE.Color();
   private readonly ray = new THREE.Raycaster();
   private readonly window = windowUniforms();
+  private byCountry = new Map<string, CountryPlate>();
+  private tops = new Map<string, number>();
   private subject: Subject | undefined;
   private lastAt = 0;
   private ease = 0.1;
 
   constructor(
-    private readonly stage: Stage,
+    private readonly surface: Surface,
+    private readonly camera: THREE.PerspectiveCamera,
+    private readonly viewport: () => { width: number; height: number },
     private readonly effects: Effects,
     private readonly ribbons: Ribbons,
+    private readonly settling: Settling,
   ) {
+    const group = surface.group;
     const towerMaterial = (): THREE.MeshStandardMaterial =>
       new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05, flatShading: true });
     this.towers = new Instances(
       box,
       windowed(towerMaterial(), this.window, false),
-      stage.scene,
+      group,
       64,
       windowed(
         Object.assign(towerMaterial(), { transparent: true, depthWrite: false }),
@@ -141,11 +156,10 @@ export class Terrain {
         true,
       ),
     );
-    this.towers.mesh.castShadow = this.towers.mesh.receiveShadow = true;
     this.caps = new Instances(
       capGeometry,
       windowed(new THREE.MeshBasicMaterial({ toneMapped: false }), this.window, false),
-      stage.scene,
+      group,
       64,
       windowed(
         new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, depthWrite: false }),
@@ -160,8 +174,13 @@ export class Terrain {
     );
     this.halfCaps.count = 0;
     this.halfCaps.frustumCulled = false;
-    stage.scene.add(this.halfCaps, this.ground, this.scarGroup);
-    this.flights = new Flights(stage.scene, effects);
+    group.add(this.halfCaps, this.ground, this.scarGroup);
+    this.flights = new Flights(
+      group,
+      effects,
+      (local) => surface.toWorld(local),
+      (local) => this.frameAt(local),
+    );
   }
 
   has(id: BlockId): boolean {
@@ -172,6 +191,10 @@ export class Terrain {
     return this.plates.size;
   }
 
+  get towerCount(): number {
+    return this.views.size;
+  }
+
   /** Towers currently opened by the window, and the band's half-width in screen units. */
   get windowed(): { towers: number; half: number } {
     let towers = 0;
@@ -179,53 +202,9 @@ export class Terrain {
     return { towers, half: this.window.uHalf.value };
   }
 
-  /** Inconsistencies between what is drawn and the layout, for the dev hook. */
-  audit(): {
-    misplaced: string[];
-    flying: number;
-    orphanViews: string[];
-    missingViews: string[];
-    emptyPlates: string[];
-    strayPlates: string[];
-  } {
-    const layout = this.layout;
-    const misplaced: string[] = [];
-    const orphanViews: string[] = [];
-    let flying = 0;
-    if (!layout)
-      return { misplaced, flying, orphanViews, missingViews: [], emptyPlates: [], strayPlates: [] };
-    for (const v of this.views.values()) {
-      const p = layout.blocks.get(v.id);
-      if (!p) {
-        orphanViews.push(v.id);
-        continue;
-      }
-      if (v.flight) {
-        flying++;
-        continue;
-      }
-      const at = this.stage.world(p.cell.x + 0.5, p.cell.z + 0.5);
-      if (Math.hypot(v.pos.x - at.x, v.pos.z - at.z) > 0.05)
-        misplaced.push(
-          `${v.id}@${String(v.cell.x)},${String(v.cell.z)} vs ${String(p.cell.x)},${String(p.cell.z)}`,
-        );
-    }
-    const missingViews = [...layout.blocks.keys()].filter((id) => !this.views.has(id));
-    const populated = new Set<string>();
-    for (const p of layout.blocks.values()) populated.add(`d\0${p.country}\0${p.district}`);
-    const emptyPlates = layout.districts
-      .map((d) => `d\0${d.country}\0${d.district}`)
-      .filter((k) => !populated.has(k));
-    const keys = new Set([
-      ...layout.countries.map((c) => `c\0${c.country}`),
-      ...layout.districts.map((d) => `d\0${d.country}\0${d.district}`),
-    ]);
-    const strayPlates = [...this.plates.keys()].filter((k) => !keys.has(k));
-    return { misplaced, flying, orphanViews, missingViews, emptyPlates, strayPlates };
-  }
-
   /** The block under a pointer, by ray against the towers. */
   pick(ndc: THREE.Vector2, camera: THREE.Camera): BlockId | undefined {
+    if (this.views.size === 0) return undefined;
     this.ray.setFromCamera(ndc, camera);
     this.towers.mesh.boundingSphere = null;
     const hit = this.ray.intersectObject(this.towers.mesh)[0];
@@ -234,45 +213,113 @@ export class Terrain {
     return undefined;
   }
 
-  /** The tallest tower standing on a district, in world units. */
+  /** The tallest tower standing on a district, in cells. */
   tallest(country: string, district: string): number {
     let top = 1;
     if (!this.layout) return top;
-    for (const [id, p] of this.layout.blocks) {
-      if (p.country !== country || p.district !== district) continue;
-      const v = this.views.get(id);
-      top = Math.max(top, (v ? v.height * v.scale : p.height) + PLATFORM_LIFT);
+    top = Math.max(top, (this.tops.get(`${country}\0${district}`) ?? 0) + PLATFORM_LIFT);
+    for (const v of this.views.values()) {
+      if (v.country !== country || v.district !== district) continue;
+      top = Math.max(top, v.height * v.scale + PLATFORM_LIFT);
     }
     return top;
   }
 
-  /** Where light lands on a block: the centre of its cap, following flights. */
-  top(id: BlockId): THREE.Vector3 | undefined {
+  /** Where a block is, drawn or not: its flat point, its country and its height. */
+  private standing(
+    id: BlockId,
+  ): { country: string; x: number; z: number; y: number; height: number } | undefined {
     const v = this.views.get(id);
-    if (!v) return undefined;
-    return new THREE.Vector3(
-      v.pos.x,
-      v.pos.y + PLATFORM_LIFT + v.height * v.scale * v.stretch + CAP_HEIGHT,
-      v.pos.z,
-    );
+    if (v) {
+      return {
+        country: v.country,
+        x: v.pos.x,
+        z: v.pos.z,
+        y: v.pos.y,
+        height: v.height * v.scale * v.stretch,
+      };
+    }
+    const placed = this.layout?.blocks.get(id);
+    if (!placed) return undefined;
+    return {
+      country: placed.country,
+      x: placed.cell.x + 0.5,
+      z: placed.cell.z + 0.5,
+      y: 0,
+      height: placed.height,
+    };
   }
 
-  /** Where a block stands: the centre of its footprint on the platform. */
+  /** Where light lands on a block: the centre of its cap, following flights, in world units. */
+  top(id: BlockId): THREE.Vector3 | undefined {
+    const s = this.standing(id);
+    if (!s) return undefined;
+    return this.surface.world(s.country, s.x, s.z, s.y + PLATFORM_LIFT + s.height + CAP_HEIGHT);
+  }
+
+  /** Where a block stands: the centre of its footprint on the platform, in world units. */
   foot(id: BlockId): THREE.Vector3 | undefined {
-    const v = this.views.get(id);
-    return v ? new THREE.Vector3(v.pos.x, PLATFORM_LIFT, v.pos.z) : undefined;
+    const s = this.standing(id);
+    if (!s) return undefined;
+    return this.surface.world(s.country, s.x, s.z, PLATFORM_LIFT);
+  }
+
+  /** The radial and scale at a block, for anything that stands on it in world space. */
+  frameOf(id: BlockId): Frame | undefined {
+    const s = this.standing(id);
+    if (!s) return undefined;
+    const local = this.surface.local(s.country, s.x, s.z);
+    const quaternion = this.surface
+      .orientation(s.country, s.x, s.z)
+      .premultiply(
+        new THREE.Quaternion().setFromRotationMatrix(
+          new THREE.Matrix4().extractRotation(this.surface.group.matrixWorld),
+        ),
+      );
+    return { ...this.frameAt(local), quaternion };
+  }
+
+  frameAt(local: THREE.Vector3): Frame {
+    return { up: this.surface.upAt(local), scale: this.surface.scale };
   }
 
   cellAt(id: BlockId): Cell | undefined {
     return this.views.get(id)?.cell;
   }
 
+  /** The cities that draw towers; the rest stay body patches. */
+  setAdmitted(countries: ReadonlySet<string>, now: number): void {
+    const layout = this.layout;
+    if (!layout) return;
+    if (this.byCountry.size === 0) this.index(layout);
+    let changed = false;
+    for (const c of countries) if (!this.admitted.has(c)) changed = true;
+    for (const c of this.admitted) if (!countries.has(c)) changed = true;
+    if (!changed) return;
+    this.admitted = new Set(countries);
+    for (const v of [...this.views.values()]) {
+      if (!this.admitted.has(v.country)) this.release(v);
+    }
+    for (const [id, p] of layout.blocks) {
+      if (!this.admitted.has(p.country) || this.views.has(id)) continue;
+      this.place(id, p.cell, p.height, this.accentFor(layout, p.country), p.country, p.district, {
+        start: now,
+        duration: RISE_MS,
+        ease: linear,
+      });
+    }
+    this.syncGround(layout, now, false);
+  }
+
   apply(layout: Layout, motions: readonly Motion[], now: number, snap: boolean): void {
     const first = this.layout === undefined;
     this.layout = layout;
+    this.index(layout);
+    const drawn = (country: string): boolean => this.admitted.has(country);
     if (first || snap) {
       this.syncGround(layout, now, true);
       for (const [id, p] of layout.blocks) {
+        if (!drawn(p.country)) continue;
         this.place(
           id,
           p.cell,
@@ -304,7 +351,7 @@ export class Terrain {
       const first = m.moves[0];
       const source = first ? this.views.get(first.from) : undefined;
       return source && first
-        ? { key: `d\0${source.country}\0${source.district}`, dir: dirOf(first.from) }
+        ? { key: districtKey(source.country, source.district), dir: dirOf(first.from) }
         : undefined;
     });
     const tops = new Set(
@@ -341,7 +388,7 @@ export class Terrain {
       switch (motion.kind) {
         case 'rise': {
           const p = layout.blocks.get(motion.id);
-          if (!p) break;
+          if (!p || !drawn(p.country)) break;
           const start = now + next();
           const accent = this.accentFor(layout, p.country);
           this.place(motion.id, p.cell, p.height, accent, p.country, p.district, {
@@ -350,11 +397,16 @@ export class Terrain {
             ease: linear,
           });
           if (!burst) {
-            const top = this.stage.world(p.cell.x + 0.5, p.cell.z + 0.5);
-            top.y = PLATFORM_LIFT + p.height + 0.3;
+            const local = this.surface.local(
+              p.country,
+              p.cell.x + 0.5,
+              p.cell.z + 0.5,
+              PLATFORM_LIFT + p.height + 0.3,
+            );
             this.effects.add({
               kind: 'crown',
-              at: top,
+              at: this.surface.toWorld(local),
+              frame: this.frameAt(local),
               color: paint.cap(accent),
               born: start,
               life: 900,
@@ -367,8 +419,6 @@ export class Terrain {
           if (v) v.sink = { start: now + next(), duration: SINK_MS, ease: linear };
           break;
         }
-        case 'slide':
-          break;
         case 'blink': {
           const v = this.views.get(motion.from);
           if (!v) break;
@@ -383,10 +433,6 @@ export class Terrain {
             this.fly(layout, motion.id, motion.from, motion.toCell, now + next(), now, undefined);
           }
           break;
-        case 'platform':
-          break;
-        case 'ground':
-          break;
         default:
           break;
       }
@@ -398,7 +444,7 @@ export class Terrain {
       if (v.height !== p.height && !v.flight) v.height = p.height;
       if (v.cell.x !== p.cell.x || v.cell.z !== p.cell.z) {
         v.cell = p.cell;
-        v.target = this.stage.world(p.cell.x + 0.5, p.cell.z + 0.5);
+        v.target.set(p.cell.x + 0.5, 0, p.cell.z + 0.5);
       }
     }
   }
@@ -414,9 +460,8 @@ export class Terrain {
   ): void {
     this.subject = subject;
     this.updateWindow();
-    const dt = this.lastAt === 0 ? 1 / 60 : Math.min(0.1, (now - this.lastAt) / 1000);
     this.lastAt = now;
-    this.ease = 1 - Math.pow(SETTLE_DECAY, dt);
+    this.ease = this.settling.factor;
     let halves = 0;
     for (const v of this.views.values()) {
       if (v.sink && done(v.sink, now)) {
@@ -426,11 +471,20 @@ export class Terrain {
       this.advance(v, now);
       const h = Math.max(0.001, v.height * v.scale * v.stretch);
       const sxz = 1 / Math.sqrt(v.stretch);
-      this.m.makeScale(TOWER * U * sxz, h, TOWER * U * sxz);
-      this.m.setPosition(v.pos.x, v.pos.y + PLATFORM_LIFT + h / 2, v.pos.z);
+      this.q.copy(this.surface.orientation(v.country, v.pos.x, v.pos.z));
+      this.s.set(TOWER * sxz, h, TOWER * sxz);
+      this.m.compose(
+        this.surface.at(v.country, v.pos.x, v.pos.z, v.pos.y + PLATFORM_LIFT + h / 2),
+        this.q,
+        this.s,
+      );
       this.towers.mesh.setMatrixAt(v.index, this.m);
-      this.m.makeScale(sxz, 1, sxz);
-      this.m.setPosition(v.pos.x, v.pos.y + PLATFORM_LIFT + h + CAP_HEIGHT / 2, v.pos.z);
+      this.s.set(sxz, 1, sxz);
+      this.m.compose(
+        this.surface.at(v.country, v.pos.x, v.pos.z, v.pos.y + PLATFORM_LIFT + h + CAP_HEIGHT / 2),
+        this.q,
+        this.s,
+      );
       this.caps.mesh.setMatrixAt(v.index, this.m);
       this.towers.cut.array[v.index] = v.cut;
       this.caps.cut.array[v.index] = v.cut;
@@ -458,11 +512,14 @@ export class Terrain {
         if (ca && cb) {
           this.cap.copy(cb).multiplyScalar(0.85);
           this.other.copy(ca).multiplyScalar(0.85 * dimming);
-          this.m.makeScale(1, 1, 1);
-          this.m.setPosition(
-            v.pos.x - (TOWER + 0.04) / 4,
-            v.pos.y + PLATFORM_LIFT + h + CAP_HEIGHT / 2 + 0.005,
-            v.pos.z,
+          const t1 = new THREE.Vector3(1, 0, 0).applyQuaternion(this.q);
+          this.s.set(1, 1, 1);
+          this.m.compose(
+            this.surface
+              .at(v.country, v.pos.x, v.pos.z, v.pos.y + PLATFORM_LIFT + h + CAP_HEIGHT / 2 + 0.005)
+              .addScaledVector(t1, -(TOWER + 0.04) / 4),
+            this.q,
+            this.s,
           );
           this.halfCaps.setMatrixAt(halves, this.m);
           this.halfCaps.setColorAt(halves, this.other);
@@ -489,37 +546,36 @@ export class Terrain {
     if (this.caps.mesh.instanceColor) this.caps.mesh.instanceColor.needsUpdate = true;
 
     for (const [key, plate] of this.plates) {
-      if (plate.flight) {
+      const target = this.settling.targetOf(key);
+      if (plate.flight && target) {
         const pose = flightPose(plate.flight, now);
-        plate.mesh.position.set(pose.x, plate.y + Math.max(0, pose.y), pose.z);
-        plate.rim?.position.set(pose.x, Math.max(0, pose.y) + 0.01, pose.z);
+        this.showPlate(plate, false);
+        plate.mesh.position.copy(pose.position);
+        plate.mesh.quaternion.setFromUnitVectors(UP, pose.position.clone().normalize());
+        if (plate.rim) {
+          plate.rim.position.copy(plate.mesh.position);
+          plate.rim.quaternion.copy(plate.mesh.quaternion);
+        }
         if (pose.k < 1) continue;
         this.flights.landed(
           `platform\0${key}`,
           plate.flight,
           undefined,
-          Math.max(plate.to.w, plate.to.h) * U,
+          Math.max(target.w, target.h),
           now,
         );
         delete plate.flight;
-        plate.at = { ...plate.to };
+        this.settling.arrive(key, target);
+        plate.built = { x: NaN, z: NaN, w: 0, h: 0 };
       }
-      if (plate.gone) {
+      const r = this.settling.rectOf(key);
+      if (plate.gone || !r) {
         this.dropPlate(key, plate, now);
         continue;
       }
-      const r = plate.at;
-      r.x += (plate.to.x - r.x) * this.ease;
-      r.z += (plate.to.z - r.z) * this.ease;
-      r.w += (plate.to.w - r.w) * this.ease;
-      r.h += (plate.to.h - r.h) * this.ease;
-      const at = this.stage.world(r.x + r.w / 2, r.z + r.h / 2);
-      plate.mesh.scale.set((r.w + plate.pad) * U, plate.lift, (r.h + plate.pad) * U);
-      plate.mesh.position.set(at.x, plate.y, at.z);
-      if (plate.rim) {
-        plate.rim.scale.set((r.w + plate.pad) * U, 1, (r.h + plate.pad) * U);
-        plate.rim.position.set(at.x, 0.01, at.z);
-      }
+      const standing = r.w > SETTLE_MIN && r.h > SETTLE_MIN;
+      this.showPlate(plate, standing);
+      if (standing) this.buildPlate(plate, r);
     }
     this.scars = this.scars.filter((s) => {
       const k = (now - s.born) / s.life;
@@ -530,15 +586,16 @@ export class Terrain {
       (s.mesh.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - k);
       return true;
     });
-    this.flights.update(now, hover, hover === undefined ? undefined : this.top(hover));
+    this.flights.update(now, hover);
   }
 
   private updateWindow(): void {
     const subject = this.subject;
-    const camera = this.stage.camera;
-    const { width, height } = this.stage.size();
+    const camera = this.camera;
+    const { width, height } = this.viewport();
     this.window.uAspect.value = width / height;
-    if (!subject) {
+    const subjectView = subject ? this.views.get(subject.id) : undefined;
+    if (!subject || !subjectView) {
       for (const v of this.views.values()) {
         if (v.cut > 0) v.cut = Math.max(0, v.cut - this.ease * v.cut);
         if (v.cut < 0.002) v.cut = 0;
@@ -549,15 +606,11 @@ export class Terrain {
     const base = subject.foot.clone().project(camera);
     const top = subject.beacon.clone().project(camera);
     const forward = camera.getWorldDirection(new THREE.Vector3());
-    const fwd = new THREE.Vector2(forward.x, forward.z).normalize();
-    const eye = new THREE.Vector2(camera.position.x, camera.position.z);
-    const subjectAlong = new THREE.Vector2(subject.foot.x, subject.foot.z).sub(eye).dot(fwd);
-    const right = new THREE.Vector3()
-      .setFromMatrixColumn(camera.matrixWorld, 0)
-      .setY(0)
-      .normalize();
+    const eye = camera.position;
+    const subjectAlong = subject.foot.clone().sub(eye).dot(forward);
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
     const mid = subject.foot.clone().lerp(subject.beacon, 0.5);
-    const side = mid.clone().add(right).project(camera);
+    const side = mid.clone().addScaledVector(right, this.surface.scale).project(camera);
     const centre = mid.clone().project(camera);
     const asp = width / height;
     const perUnit = Math.hypot((side.x - centre.x) * asp, side.y - centre.y);
@@ -569,22 +622,26 @@ export class Terrain {
     const a = this.window.uBase.value.clone().multiply(new THREE.Vector2(asp, 1));
     const b = this.window.uTop.value.clone().multiply(new THREE.Vector2(asp, 1));
     const reach = this.window.uHalf.value + this.window.uFeather.value + perUnit * 0.6;
-    const near = new THREE.Vector2();
+    const key = repoOfName(subjectView.country);
     for (const v of this.views.values()) {
       let target = 0;
       if (
         v.id !== subject.id &&
-        Math.abs(v.pos.x - subject.foot.x) < WINDOW.reach &&
-        Math.abs(v.pos.z - subject.foot.z) < WINDOW.reach
+        repoOfName(v.country) === key &&
+        Math.abs(v.pos.x - subjectView.pos.x) < WINDOW.reach &&
+        Math.abs(v.pos.z - subjectView.pos.z) < WINDOW.reach
       ) {
-        const along = near.set(v.pos.x, v.pos.z).sub(eye).dot(fwd);
-        const inFront = v.cut > 0.5 ? along < subjectAlong + 0.2 : along < subjectAlong - 0.4;
+        const world = this.surface.world(
+          v.country,
+          v.pos.x,
+          v.pos.z,
+          PLATFORM_LIFT + (v.height * v.scale) / 2,
+        );
+        const along = world.clone().sub(eye).dot(forward);
+        const margin = 0.3 * this.surface.scale;
+        const inFront = v.cut > 0.5 ? along < subjectAlong + margin : along < subjectAlong - margin;
         if (inFront) {
-          const c = new THREE.Vector3(
-            v.pos.x,
-            PLATFORM_LIFT + (v.height * v.scale) / 2,
-            v.pos.z,
-          ).project(camera);
+          const c = world.project(camera);
           const p = new THREE.Vector2(c.x * asp, c.y);
           const pa = p.clone().sub(a);
           const ba = b.clone().sub(a);
@@ -610,7 +667,11 @@ export class Terrain {
     if (v.flight) {
       const f = v.flight;
       const pose = flightPose(f.path, now);
-      v.pos.set(pose.x, pose.y, pose.z);
+      v.pos.set(
+        f.path.from.x + (f.path.to.x - f.path.from.x) * pose.k,
+        pose.y,
+        f.path.from.z + (f.path.to.z - f.path.from.z) * pose.k,
+      );
       v.stretch = pose.sy;
       if (pose.k >= 1) {
         v.pos.copy(f.path.to).setY(0);
@@ -620,6 +681,24 @@ export class Terrain {
         delete v.flight;
       }
     }
+  }
+
+  /** A flight path between two flat points, on the streets when they share a continent. */
+  private pathBetween(
+    fromCountry: string,
+    from: THREE.Vector3,
+    toCountry: string,
+    to: THREE.Vector3,
+    apex: number,
+    start: number,
+    duration: number,
+  ): FlightPath {
+    const surface = this.surface;
+    const a = surface.cellOf(fromCountry, from.x, from.z);
+    const b = surface.cellOf(toCountry, to.x, to.z);
+    const at = (k: number, y: number): THREE.Vector3 =>
+      surface.atCell(a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, y);
+    return { from: from.clone(), to: to.clone(), apex, start, duration, at };
   }
 
   private fly(
@@ -634,17 +713,26 @@ export class Terrain {
     const v = this.views.get(from) ?? this.views.get(id);
     const p = layout.blocks.get(id);
     if (!v || !p) return;
+    if (!this.admitted.has(p.country)) {
+      this.release(v);
+      return;
+    }
     this.views.delete(from);
     v.id = id;
     this.views.set(id, v);
     this.flights.forget(from);
-    const to = this.stage.world(toCell.x + 0.5, toCell.z + 0.5);
+    const to = new THREE.Vector3(toCell.x + 0.5, 0, toCell.z + 0.5);
     const origin = v.pos.clone().setY(0);
-    const timing = flightFor(Math.hypot(to.x - origin.x, to.z - origin.z));
-    const path: FlightPath = body
-      ? { from: origin, to, apex: body.apex, start: body.start, duration: body.duration }
-      : { from: origin, to, apex: timing.apex, start, duration: timing.duration };
+    const distance = this.surface.span(v.country, { x: origin.x, z: origin.z }, p.country, {
+      x: to.x,
+      z: to.z,
+    });
+    const timing = flightFor(distance);
+    const path = body
+      ? this.pathBetween(v.country, origin, p.country, to, body.apex, body.start, body.duration)
+      : this.pathBetween(v.country, origin, p.country, to, timing.apex, start, timing.duration);
     const fromAccent = v.accent;
+    const scarAt = this.surface.place(v.country, origin.x, origin.z, PLATFORM_LIFT + 0.02);
     v.accent = this.accentFor(layout, p.country);
     v.height = p.height;
     v.cell = toCell;
@@ -653,13 +741,7 @@ export class Terrain {
     v.district = p.district;
     v.flight = { path, fromAccent, silent: body !== undefined };
     if (!body)
-      this.flights.ribbon(
-        path,
-        undefined,
-        v.height + 0.2,
-        this.scar(origin, now, 0.9, 0.9, true),
-        () => v.pos,
-      );
+      this.flights.ribbon(path, undefined, v.height + 0.2, this.scar(scarAt, now, 0.9, 0.9, true));
   }
 
   private flyPlatform(
@@ -669,28 +751,32 @@ export class Terrain {
     silent: boolean,
   ): FlightPath | undefined {
     const plate = this.plates.get(key);
-    if (!plate) return undefined;
-    const from = plate.mesh.position.clone().setY(0);
-    const to = this.stage.world(rect.x + rect.w / 2, rect.z + rect.h / 2);
+    const was = this.settling.rectOf(key);
+    if (!plate || !was) return undefined;
+    const from = new THREE.Vector3(was.x + was.w / 2, 0, was.z + was.h / 2);
+    const to = new THREE.Vector3(rect.x + rect.w / 2, 0, rect.z + rect.h / 2);
     const timing = flightFor(Math.hypot(to.x - from.x, to.z - from.z));
-    const path: FlightPath = { from, to, apex: timing.apex, start: now, duration: timing.duration };
+    const path = this.pathBetween(
+      plate.country,
+      from,
+      rect.country,
+      to,
+      timing.apex,
+      now,
+      timing.duration,
+    );
     if (!silent) {
-      const scar = this.scar(
-        from,
-        now,
-        (plate.to.w + plate.pad) * U,
-        (plate.to.h + plate.pad) * U,
-        true,
-      );
-      this.flights.ribbon(path, undefined, 0.4, scar, () => plate.mesh.position);
+      const scarAt = this.surface.place(plate.country, from.x, from.z, PLATFORM_LIFT + 0.02);
+      const scar = this.scar(scarAt, now, was.w + 2 * plate.skirt, was.h + 2 * plate.skirt, true);
+      this.flights.ribbon(path, undefined, 0.4, scar);
     }
+    const landing = districtKey(rect.country, rect.district);
     this.plates.delete(key);
     plate.flight = path;
-    plate.at = { ...rect };
-    plate.to = { ...rect };
-    plate.mesh.scale.set((rect.w + plate.pad) * U, plate.lift, (rect.h + plate.pad) * U);
-    plate.rim?.scale.set((rect.w + plate.pad) * U, 1, (rect.h + plate.pad) * U);
-    this.plates.set(`d\0${rect.country}\0${rect.district}`, plate);
+    plate.country = rect.country;
+    this.plates.set(landing, plate);
+    this.settling.rename(key, landing);
+    this.settling.arrive(landing, rect);
     return path;
   }
 
@@ -710,7 +796,7 @@ export class Terrain {
     }
     const index = this.towers.allocate();
     this.caps.allocate();
-    const pos = this.stage.world(cell.x + 0.5, cell.z + 0.5);
+    const pos = new THREE.Vector3(cell.x + 0.5, 0, cell.z + 0.5);
     this.views.set(id, {
       id,
       index,
@@ -728,17 +814,22 @@ export class Terrain {
     });
   }
 
-  private remove(v: View, now: number): void {
-    if (v.flight) this.flights.abandon(v.flight.path, now);
+  private release(v: View): void {
+    if (v.flight) this.flights.abandon(v.flight.path, this.lastAt);
     this.views.delete(v.id);
     this.flights.forget(v.id);
     this.towers.release(v.index);
     this.caps.release(v.index);
-    this.scar(v.pos, now, 0.9, 0.9, false);
+  }
+
+  private remove(v: View, now: number): void {
+    const at = this.surface.place(v.country, v.pos.x, v.pos.z, PLATFORM_LIFT + 0.02);
+    this.release(v);
+    this.scar(at, now, 0.9, 0.9, false);
   }
 
   private scar(
-    at: THREE.Vector3,
+    at: { position: THREE.Vector3; quaternion: THREE.Quaternion },
     now: number,
     w: number,
     d: number,
@@ -754,29 +845,63 @@ export class Terrain {
         depthWrite: false,
       }),
     );
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.scale.set(w, d, 1);
-    mesh.position.set(at.x, PLATFORM_LIFT + 0.02, at.z);
+    mesh.scale.set(w, 1, d);
+    mesh.position.copy(at.position);
+    mesh.quaternion.copy(at.quaternion);
     this.scarGroup.add(mesh);
     if (!owned) this.scars.push({ mesh, born: now, life });
     return mesh;
   }
 
   private accentFor(layout: Layout, country: string): Accent {
-    const c = layout.countries.find((k) => k.country === country);
+    void layout;
+    const c = this.byCountry.get(country);
     return c ? accentOf(c.family, c.variant) : PLUMBING;
+  }
+
+  /** Country plates by name and the tallest block on each district, both read every frame. */
+  private index(layout: Layout): void {
+    this.byCountry = new Map(layout.countries.map((c) => [c.country, c]));
+    this.tops = new Map();
+    for (const p of layout.blocks.values()) {
+      const key = `${p.country}\0${p.district}`;
+      this.tops.set(key, Math.max(this.tops.get(key) ?? 0, p.height));
+    }
   }
 
   /** The ground follows the layout: every plate targets its rect, a flight only overrides its position. */
   private syncGround(layout: Layout, now: number, snap: boolean): void {
+    const live = new Set<string>();
+    const moved: { country: string; rect: Rect }[] = [];
+    for (const ct of layout.continents) {
+      const key = landKey(ct.repo);
+      live.add(key);
+      this.settling.target(key, ct.land, undefined, snap);
+    }
+    for (const c of layout.countries) {
+      const key = countryKey(c.country);
+      live.add(key);
+      if (this.settling.target(key, c, landKey(repoOfName(c.country)), snap) === 'moved') {
+        moved.push({ country: c.country, rect: c });
+      }
+    }
+    for (const d of layout.districts) {
+      const key = districtKey(d.country, d.district);
+      live.add(key);
+      if (this.settling.target(key, d, countryKey(d.country), snap) === 'moved') {
+        moved.push({ country: d.country, rect: d });
+      }
+    }
+    this.settling.keep(live);
+
     const seen = new Set<string>();
-    const moved: Plate[] = [];
     const upsert = (
       key: string,
-      rect: Rect,
-      lift: number,
-      y: number,
-      pad: number,
+      country: string,
+      top: number,
+      bottom: number,
+      skirt: number,
+      shadeAt: number,
       color: THREE.Color,
       rimColor?: THREE.Color,
     ): void => {
@@ -784,28 +909,19 @@ export class Terrain {
       const existing = this.plates.get(key);
       if (existing) {
         delete existing.gone;
-        const changed =
-          existing.to.x !== rect.x ||
-          existing.to.z !== rect.z ||
-          existing.to.w !== rect.w ||
-          existing.to.h !== rect.h;
-        if (changed) {
-          existing.to = { ...rect };
-          if (snap) existing.at = { ...rect };
-          if (!existing.flight) moved.push(existing);
-        }
         return;
       }
       const mesh = new THREE.Mesh(
-        box,
+        new THREE.BufferGeometry(),
         new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }),
       );
-      mesh.castShadow = mesh.receiveShadow = true;
       this.ground.add(mesh);
-      let rim: THREE.LineSegments | undefined;
+      const shade = shadeMesh();
+      this.ground.add(shade);
+      let rim: THREE.LineLoop | undefined;
       if (rimColor) {
-        rim = new THREE.LineSegments(
-          rimGeometry,
+        rim = new THREE.LineLoop(
+          new THREE.BufferGeometry(),
           new THREE.LineBasicMaterial({
             color: rimColor,
             transparent: true,
@@ -818,71 +934,188 @@ export class Terrain {
       this.plates.set(key, {
         mesh,
         ...(rim && { rim }),
-        at: { ...rect },
-        to: { ...rect },
-        lift,
-        y,
-        pad,
+        shade,
+        country,
+        built: { x: NaN, z: NaN, w: 0, h: 0 },
+        top,
+        bottom,
+        skirt,
+        shadeAt,
       });
     };
     for (const c of layout.countries) {
+      if (!this.admitted.has(c.country)) continue;
       const accent = accentOf(c.family, c.variant);
       upsert(
-        `c ${c.country}`,
-        c,
-        PLATE_HEIGHT,
-        PLATE_Y,
-        1.6,
+        countryKey(c.country),
+        c.country,
+        GROUND.country.top,
+        GROUND.country.bottom,
+        COUNTRY_SKIRT,
+        GROUND.shade.land,
         paint.plate(accent),
         paint.cap(accent),
       );
     }
     for (const d of layout.districts) {
-      const c = layout.countries.find((k) => k.country === d.country);
+      if (!this.admitted.has(d.country)) continue;
+      const c = this.byCountry.get(d.country);
       upsert(
-        `d ${d.country} ${d.district}`,
-        d,
-        PLATFORM_HEIGHT,
-        PLATFORM_Y,
-        0.6,
+        districtKey(d.country, d.district),
+        d.country,
+        GROUND.district.top,
+        GROUND.district.bottom,
+        DISTRICT_SKIRT,
+        GROUND.shade.country,
         paint.platform(c ? accentOf(c.family, c.variant) : PLUMBING),
       );
     }
     for (const [key, plate] of this.plates) {
       if (seen.has(key)) continue;
       if (plate.flight) plate.gone = true;
-      else this.dropPlate(key, plate, now);
+      else this.dropPlate(key, plate, now, !this.admitted.has(plate.country));
     }
     if (!snap && moved.length > 0) {
-      const inside = (pt: THREE.Vector3): boolean =>
-        moved.some((p) => {
-          const at = this.stage.world(p.to.x, p.to.z);
-          return (
-            pt.x >= at.x - 1 &&
-            pt.x <= at.x + (p.to.w + 1) * U &&
-            pt.z >= at.z - 1 &&
-            pt.z <= at.z + (p.to.h + 1) * U
-          );
-        });
-      this.ribbons.dissolve(inside, now);
-      this.flights.dissolve(inside, now);
+      const insideFlat = (pt: THREE.Vector3): boolean =>
+        moved.some(
+          ({ rect: r }) =>
+            pt.x >= r.x - 1 && pt.x <= r.x + r.w + 1 && pt.z >= r.z - 1 && pt.z <= r.z + r.h + 1,
+        );
+      const spheres = moved.map(({ country, rect: r }) => ({
+        centre: this.surface.world(country, r.x + r.w / 2, r.z + r.h / 2),
+        radius: (Math.hypot(r.w, r.h) / 2 + 1) * this.surface.scale,
+      }));
+      this.ribbons.dissolve((pt) => spheres.some((s) => pt.distanceTo(s.centre) <= s.radius), now);
+      this.flights.dissolve(insideFlat, now);
     }
   }
 
-  private dropPlate(key: string, plate: Plate, now: number): void {
-    this.ground.remove(plate.mesh);
-    if (plate.rim) this.ground.remove(plate.rim);
-    this.plates.delete(key);
-    const at = plate.mesh.position.clone().setY(0);
-    this.scar(
-      at,
-      now,
-      (plate.at.w + plate.pad) * U,
-      (plate.at.h + plate.pad) * U,
-      false,
-      RIBBON_RETRACT_MS,
+  private showPlate(plate: Plate, on: boolean): void {
+    plate.mesh.visible = on;
+    plate.shade.visible = on && plate.flight === undefined;
+    if (plate.rim) plate.rim.visible = on;
+  }
+
+  /** A plate is a shell that follows the sphere: rebuilt whenever its rect has moved. */
+  private buildPlate(plate: Plate, r: Rect): void {
+    const b = plate.built;
+    if (
+      Math.abs(r.x - b.x) < 1e-3 &&
+      Math.abs(r.z - b.z) < 1e-3 &&
+      Math.abs(r.w - b.w) < 1e-3 &&
+      Math.abs(r.h - b.h) < 1e-3
+    )
+      return;
+    plate.built = { ...r };
+    const x0 = r.x - plate.skirt;
+    const z0 = r.z - plate.skirt;
+    const w = r.w + 2 * plate.skirt;
+    const h = r.h + 2 * plate.skirt;
+    plate.mesh.geometry.dispose();
+    plate.mesh.geometry = shellGeometry(
+      this.surface,
+      plate.country,
+      x0,
+      z0,
+      w,
+      h,
+      plate.bottom,
+      plate.top,
+    );
+    plate.mesh.position.set(0, 0, 0);
+    plate.mesh.quaternion.identity();
+    if (plate.rim) {
+      plate.rim.geometry.dispose();
+      plate.rim.geometry = rimGeometry(this.surface, plate.country, x0, z0, w, h, plate.top + 0.01);
+      plate.rim.position.set(0, 0, 0);
+      plate.rim.quaternion.identity();
+    }
+    plate.shade.geometry.dispose();
+    plate.shade.geometry = shadeGeometry(
+      this.surface,
+      plate.country,
+      x0,
+      z0,
+      w,
+      h,
+      plate.shadeAt,
+      SHADE.spread,
+      SHADE.alpha,
     );
   }
+
+  private dropPlate(key: string, plate: Plate, now: number, quiet = false): void {
+    const r = this.settling.rectOf(key) ?? plate.built;
+    this.ground.remove(plate.mesh);
+    plate.mesh.geometry.dispose();
+    this.ground.remove(plate.shade);
+    plate.shade.geometry.dispose();
+    if (plate.rim) {
+      this.ground.remove(plate.rim);
+      plate.rim.geometry.dispose();
+    }
+    this.plates.delete(key);
+    if (quiet || Number.isNaN(r.x)) return;
+    const at = this.surface.place(
+      plate.country,
+      r.x + r.w / 2,
+      r.z + r.h / 2,
+      PLATFORM_LIFT + 0.02,
+    );
+    this.scar(at, now, r.w + 2 * plate.skirt, r.h + 2 * plate.skirt, false, RIBBON_RETRACT_MS);
+  }
+}
+
+/** A slab between two heights over a rect of cells, every vertex on its own radial. */
+function shellGeometry(
+  surface: Surface,
+  country: string,
+  x0: number,
+  z0: number,
+  w: number,
+  h: number,
+  bottom: number,
+  top: number,
+): THREE.BufferGeometry {
+  const nx = surface.segmentsFor(w);
+  const nz = surface.segmentsFor(h);
+  const positions: number[] = [];
+  const grid = (y: number): number => {
+    const base = positions.length / 3;
+    for (let j = 0; j <= nz; j++) {
+      for (let i = 0; i <= nx; i++) {
+        const p = surface.local(country, x0 + (w * i) / nx, z0 + (h * j) / nz, y);
+        positions.push(p.x, p.y, p.z);
+      }
+    }
+    return base;
+  };
+  grid(top);
+  grid(bottom);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(slabIndices(nx, nz));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function rimGeometry(
+  surface: Surface,
+  country: string,
+  x0: number,
+  z0: number,
+  w: number,
+  h: number,
+  y: number,
+): THREE.BufferGeometry {
+  const nx = surface.segmentsFor(w);
+  const nz = surface.segmentsFor(h);
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < nx; i++) pts.push(surface.local(country, x0 + (w * i) / nx, z0, y));
+  for (let j = 0; j < nz; j++) pts.push(surface.local(country, x0 + w, z0 + (h * j) / nz, y));
+  for (let i = nx; i > 0; i--) pts.push(surface.local(country, x0 + (w * i) / nx, z0 + h, y));
+  for (let j = nz; j > 0; j--) pts.push(surface.local(country, x0, z0 + (h * j) / nz, y));
+  return new THREE.BufferGeometry().setFromPoints(pts);
 }
 
 function dirOf(id: string): string {

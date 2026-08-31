@@ -1,3 +1,4 @@
+import { withoutRepo } from './qualified.js';
 export type Family = 'apps' | 'libs' | 'docs' | 'plumbing';
 
 export const FAMILIES: readonly Family[] = ['apps', 'libs', 'docs', 'plumbing'];
@@ -15,7 +16,7 @@ const BY_TOP: Readonly<Record<string, Family>> = {
 
 /** The family of a country, read off its top-level folder and never configured. */
 export function familyOf(country: string): Family {
-  const top = country.split('/')[0] ?? '';
+  const top = withoutRepo(country).split('/')[0] ?? '';
   return BY_TOP[top] ?? 'plumbing';
 }
 

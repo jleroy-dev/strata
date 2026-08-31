@@ -1,17 +1,25 @@
-import { labelOf, type Placement, type Sessions, type Touch } from '@strata/core';
+import {
+  labelOf,
+  pathOf,
+  type BlockId,
+  type Mount,
+  type Placement,
+  type Sessions,
+  type Touch,
+} from '@strata/core';
 import { ago, panel } from './dom.js';
-import { openInEditor } from './host.js';
+import { fileOf, openInEditor } from './host.js';
 
 const card = panel('caption');
 card.style.display = 'none';
 
 export function drawCaption(
-  id: string | undefined,
+  id: BlockId | undefined,
   placement: Placement | undefined,
   touches: readonly Touch[] | undefined,
   sessions: Sessions,
   hueOf: (agentId: string) => number | undefined,
-  root: string,
+  mounts: readonly Mount[],
   now: number,
 ): void {
   if (id === undefined) {
@@ -20,13 +28,16 @@ export function drawCaption(
   }
   card.style.display = 'block';
   card.replaceChildren();
+  const file = fileOf(mounts, id);
   const link = document.createElement('a');
-  link.href = `vscode://file${root}/${id}`;
-  link.textContent = id;
-  link.addEventListener('click', (e) => {
-    e.preventDefault();
-    openInEditor(root, id);
-  });
+  if (file !== undefined) {
+    link.href = `vscode://file${file}`;
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      openInEditor(file);
+    });
+  }
+  link.textContent = pathOf(id);
   card.append(link);
   const meta = document.createElement('div');
   meta.className = 'm';

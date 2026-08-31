@@ -18,7 +18,7 @@ export class Instances {
   constructor(
     private readonly geometry: THREE.BufferGeometry,
     private readonly material: THREE.Material,
-    private readonly scene: THREE.Scene,
+    private readonly scene: THREE.Object3D,
     capacity: number,
     private readonly shellMaterial?: THREE.Material,
   ) {

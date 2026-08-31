@@ -3,34 +3,40 @@ import {
   ARRIVAL_MS,
   DEPARTURE_MS,
   route,
+  sameContinent,
   type Agent,
   type BlockId,
   type Layout,
   type Motion,
+  type RepoId,
 } from '@strata/core';
-import { additive, beamGeometry, beamMaterial, type Effects } from './effects.js';
+import { additive, beamGeometry, beamMaterial, type Effects, type Frame } from './effects.js';
+import type { Ground } from './ground.js';
 import { GROUND_Y, type Ribbons } from './ribbons.js';
 import type { Stage } from './stage.js';
 import { occupiedBy, smooth } from './streets.js';
-import type { Terrain } from './terrain.js';
 import { PLATFORM_LIFT, paint } from './theme.js';
 
 const REST = 0.25;
 const RISE = 0.95;
 const CORE = 0.08;
 const HALO = 0.018;
+const SKY = 18;
+const UP = new THREE.Vector3(0, 1, 0);
 
 interface Trip {
   path: THREE.Vector3[];
   seg: number;
   t: number;
   speed: number;
+  from?: BlockId;
   to: BlockId;
   verb: 'reading' | 'editing' | undefined;
 }
 
 interface Beacon {
   id: string;
+  repo: RepoId;
   hue: number;
   color: THREE.Color;
   halo: THREE.Sprite;
@@ -38,12 +44,14 @@ interface Beacon {
   stem: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
   spot: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   arc: THREE.Sprite;
+  ring: THREE.Sprite;
   work: THREE.Mesh<THREE.CylinderGeometry, THREE.ShaderMaterial>;
   workOpacity: THREE.IUniform<number>;
   band: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
   ghost: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
   light: THREE.PointLight;
   pos: THREE.Vector3;
+  frame: Frame;
   block?: BlockId;
   trip?: Trip;
   phase: 'arriving' | 'live' | 'leaving';
@@ -85,8 +93,23 @@ function arcTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
+function ringTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(64, 64, 50, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
 const haloTexture = radial();
 const arcTex = arcTexture();
+const ringTex = ringTexture();
 const backOut = (k: number): number => {
   const c1 = 1.7;
   return (
@@ -101,18 +124,13 @@ const backOut = (k: number): number => {
 export class Beacons {
   private beacons = new Map<string, Beacon>();
   private visible = true;
-  private sky = 18;
 
   constructor(
     private readonly stage: Stage,
-    private readonly terrain: Terrain,
+    private readonly ground: Ground,
     private readonly effects: Effects,
     private readonly ribbons: Ribbons,
   ) {}
-
-  setSky(span: number): void {
-    this.sky = Math.max(18, span * 0.3);
-  }
 
   setVisible(visible: boolean): void {
     if (this.visible === visible) return;
@@ -124,9 +142,11 @@ export class Beacons {
     const rowOf = (id: string): Agent | undefined => rows.find((r) => r.id === id);
     for (const motion of motions) {
       switch (motion.kind) {
-        case 'arrive':
-          this.arrive(motion.agentId, rowOf(motion.agentId)?.hue ?? 0, now);
+        case 'arrive': {
+          const row = rowOf(motion.agentId);
+          if (row) this.arrive(row, now);
           break;
+        }
         case 'depart': {
           const b = this.beacons.get(motion.agentId);
           if (b) {
@@ -145,10 +165,10 @@ export class Beacons {
           }
           break;
         case 'trip': {
-          const b =
-            this.beacons.get(motion.agentId) ??
-            this.arrive(motion.agentId, rowOf(motion.agentId)?.hue ?? 0, now);
-          const verb = rowOf(motion.agentId)?.verb;
+          const row = rowOf(motion.agentId);
+          if (!row) break;
+          const b = this.beacons.get(motion.agentId) ?? this.arrive(row, now);
+          const verb = row.verb;
           this.travel(
             b,
             layout,
@@ -180,10 +200,9 @@ export class Beacons {
     return this.beacons.get(agentId)?.pos.clone();
   }
 
-  /** Where a travelling beacon set off from, while it is still on its way. */
-  tripOrigin(agentId: string): THREE.Vector3 | undefined {
-    const trip = this.beacons.get(agentId)?.trip;
-    return trip?.path[0]?.clone();
+  /** The block a travelling beacon set off from, while it is still on its way. */
+  tripOrigin(agentId: string): BlockId | undefined {
+    return this.beacons.get(agentId)?.trip?.from;
   }
 
   hit(
@@ -196,6 +215,7 @@ export class Beacons {
   ): string | undefined {
     let best: { id: string; d: number } | undefined;
     for (const b of this.beacons.values()) {
+      if (!b.core.visible) continue;
       const p = b.core.position.clone().project(camera);
       const d = Math.hypot(((p.x + 1) / 2) * width - x, ((1 - p.y) / 2) * height - y);
       if (d < radius && (!best || d < best.d)) best = { id: b.id, d };
@@ -209,6 +229,7 @@ export class Beacons {
     for (const b of this.beacons.values()) {
       const row = byId.get(b.id);
       const dimA = dim(b.id) < 1 ? 0.45 : 1;
+      if (row) b.repo = row.repo;
       if (b.phase === 'live' && !row) {
         b.phase = 'leaving';
         b.phaseAt = now;
@@ -219,19 +240,28 @@ export class Beacons {
       }
       if (b.trip) this.advance(b, now);
       else if (b.block !== undefined) {
-        const top = this.terrain.top(b.block);
+        const top = this.ground.top(b.block);
+        const frame = this.ground.frameOf(b.block);
         if (top) b.pos.copy(top);
+        if (frame) b.frame = frame;
+      } else {
+        const above = this.ground.frameAbove(b.repo);
+        if (above) {
+          b.pos.copy(above.at);
+          b.frame = above.frame;
+        }
       }
+      for (const o of [b.halo, b.core, b.stem, b.light]) o.visible = true;
       this.look(b, row, now, dimA);
     }
   }
 
   private parts(b: Beacon): THREE.Object3D[] {
-    return [b.halo, b.core, b.stem, b.spot, b.arc, b.work, b.band, b.ghost, b.light];
+    return [b.halo, b.core, b.stem, b.spot, b.arc, b.ring, b.work, b.band, b.ghost, b.light];
   }
 
-  private arrive(id: string, hue: number, now: number): Beacon {
-    const existing = this.beacons.get(id);
+  private arrive(row: Agent, now: number): Beacon {
+    const existing = this.beacons.get(row.id);
     if (existing) {
       if (existing.phase === 'leaving') {
         existing.phase = 'live';
@@ -239,7 +269,7 @@ export class Beacons {
       }
       return existing;
     }
-    const color = paint.agent(hue);
+    const color = paint.agent(row.hue);
     const sprite = (map: THREE.Texture, mult: number): THREE.Sprite =>
       new THREE.Sprite(
         new THREE.SpriteMaterial({
@@ -273,33 +303,43 @@ export class Beacons {
         fog: false,
       }),
     );
-    const spot = new THREE.Mesh(new THREE.CircleGeometry(0.55, 32), additive(color, 1.2, 0.35));
-    spot.rotation.x = -Math.PI / 2;
+    const spot = new THREE.Mesh(
+      new THREE.CircleGeometry(0.55, 32).rotateX(-Math.PI / 2),
+      additive(color, 1.2, 0.35),
+    );
     const arc = sprite(arcTex, 4);
     arc.scale.setScalar(0.028);
     arc.renderOrder = 11;
+    const ring = sprite(ringTex, 3.5);
+    ring.scale.setScalar(0.034);
+    ring.renderOrder = 11;
     const { material: workMaterial, uniforms } = beamMaterial(color, 0.45);
     const work = new THREE.Mesh(beamGeometry, workMaterial);
-    work.scale.set(1, 4, 1);
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.05, 0.94), additive(color, 2.2, 0));
-    const ghost = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1, 0.9), additive(color, 0.35, 0));
+    const ghost = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 1, 0.9).translate(0, 0.5, 0),
+      additive(color, 0.35, 0),
+    );
     const light = new THREE.PointLight(color, 8, 6, 1.7);
-    const centre = this.stage.world(0, 0);
+    const above = this.ground.frameAbove(row.repo);
     const beacon: Beacon = {
-      id,
-      hue,
+      id: row.id,
+      repo: row.repo,
+      hue: row.hue,
       color,
       halo,
       core,
       stem,
       spot,
       arc,
+      ring,
       work,
       workOpacity: uniforms.uOpacity,
       band,
       ghost,
       light,
-      pos: new THREE.Vector3(centre.x, 3, centre.z),
+      pos: above?.at.clone() ?? new THREE.Vector3(0, 3, 0),
+      frame: above?.frame ?? { up: UP.clone(), scale: 1 },
       phase: 'arriving',
       phaseAt: now,
       landedAt: -1e9,
@@ -307,8 +347,8 @@ export class Beacons {
       flicker: 0,
     };
     this.stage.scene.add(...this.parts(beacon));
-    for (const o of [spot, arc, work, band, ghost]) o.visible = false;
-    this.beacons.set(id, beacon);
+    for (const o of [spot, arc, ring, work, band, ghost]) o.visible = false;
+    this.beacons.set(row.id, beacon);
     return beacon;
   }
 
@@ -318,31 +358,50 @@ export class Beacons {
   }
 
   private travel(b: Beacon, layout: Layout, to: BlockId, verb: Trip['verb']): void {
-    const target = this.terrain.top(to);
+    const target = this.ground.top(to);
     if (!target) {
       b.block = to;
       return;
     }
-    const start = b.block !== undefined ? this.terrain.top(b.block) : undefined;
-    const corners = b.block !== undefined && start ? route(layout, b.block, to) : [];
-    const ground = smooth(
-      corners.map((c) => this.stage.world(c.x, c.z).setY(GROUND_Y + 0.01)),
-      occupiedBy(layout),
-      (p) => this.stage.cell(p),
-      (x, z) => this.stage.world(x, z),
-    );
+    const start = b.block !== undefined ? this.ground.top(b.block) : undefined;
+    const placed = layout.blocks.get(to);
+    let ground: THREE.Vector3[] = [];
+    if (b.block !== undefined && start && placed && sameContinent(layout, b.block, to)) {
+      const corners = route(layout, b.block, to);
+      const flat = smooth(
+        corners.map((c) => new THREE.Vector3(c.x, 0, c.z)),
+        occupiedBy(layout, placed.country),
+        (p) => ({ x: Math.floor(p.x), z: Math.floor(p.z) }),
+        (x, z) => new THREE.Vector3(x, 0, z),
+      );
+      ground = flat
+        .map((p) => this.ground.worldOf(placed.country, p.x, p.z, GROUND_Y + 0.01))
+        .filter((p): p is THREE.Vector3 => p !== undefined);
+    } else if (start && b.block !== undefined) {
+      ground = this.ground.arcBetween(b.block, to, 6).slice(1, -1);
+    }
     const path = [start ?? b.pos.clone(), ...ground, target];
-    b.trip = { path, seg: 0, t: 0, speed: 0, to, verb };
+    b.trip = {
+      path,
+      seg: 0,
+      t: 0,
+      speed: 0,
+      ...(b.block !== undefined && { from: b.block }),
+      to,
+      verb,
+    };
   }
 
   private advance(b: Beacon, now: number): void {
     const trip = b.trip;
     if (!trip) return;
+    const s = b.frame.scale;
     if (trip.speed === 0) {
       let len = 0;
       for (let i = 0; i < trip.path.length - 1; i++)
         len += (trip.path[i] ?? b.pos).distanceTo(trip.path[i + 1] ?? b.pos);
-      trip.speed = Math.max(0.01, len / Math.min(800, 220 + len * 12));
+      const cells = len / s;
+      trip.speed = Math.max(0.01 * s, len / Math.min(800, 220 + cells * 12));
     }
     let left = trip.speed * 16;
     while (left > 0 && trip.seg < trip.path.length - 1) {
@@ -369,16 +428,20 @@ export class Beacons {
       b.block = trip.to;
       b.landedAt = now;
       delete b.trip;
-      const top = this.terrain.top(b.block);
+      const top = this.ground.top(b.block);
+      const frame = this.ground.frameOf(b.block);
+      if (frame) b.frame = frame;
       if (top && trip.verb) this.strike(b, top, trip.verb, now);
     }
   }
 
   private strike(b: Beacon, top: THREE.Vector3, verb: 'reading' | 'editing', now: number): void {
-    const at = top.clone().setY(top.y + 0.03);
+    const s = b.frame.scale;
+    const at = top.clone().addScaledVector(b.frame.up, 0.03 * s);
     this.effects.add({
       kind: 'wave',
       at,
+      frame: b.frame,
       color: b.color,
       born: now,
       life: verb === 'editing' ? 600 : 500,
@@ -387,10 +450,18 @@ export class Beacons {
       mult: verb === 'editing' ? 5 : 3,
     });
     if (verb === 'editing') {
-      this.effects.add({ kind: 'beam', at, color: b.color, born: now + 60, life: 600 });
+      this.effects.add({
+        kind: 'beam',
+        at,
+        frame: b.frame,
+        color: b.color,
+        born: now + 60,
+        life: 600,
+      });
       this.effects.add({
         kind: 'sparks',
         at: top.clone(),
+        frame: b.frame,
         color: b.color,
         born: now,
         life: 550,
@@ -399,30 +470,42 @@ export class Beacons {
     }
   }
 
+  private turn(o: THREE.Object3D, b: Beacon): void {
+    if (b.frame.quaternion) o.quaternion.copy(b.frame.quaternion);
+    else o.quaternion.setFromUnitVectors(UP, b.frame.up);
+  }
+
+  private stand(o: THREE.Object3D, b: Beacon, along: number): void {
+    o.position.copy(b.pos).addScaledVector(b.frame.up, along);
+    this.turn(o, b);
+  }
+
   private beamInOut(b: Beacon, now: number, dimA: number): void {
+    const s = b.frame.scale;
     const arriving = b.phase === 'arriving';
     const k = Math.min(1, (now - b.phaseAt) / (arriving ? ARRIVAL_MS : DEPARTURE_MS));
     const e = arriving ? 1 - Math.pow(1 - k, 3) : k * k * k;
-    const restY = b.pos.y + REST + RISE;
-    const head = arriving ? this.sky - (this.sky - restY) * e : restY + (this.sky - restY) * e;
+    const rest = (REST + RISE) * s;
+    const sky = SKY * s;
+    const head = arriving ? sky - (sky - rest) * e : rest + (sky - rest) * e;
     const tail = arriving
-      ? this.sky - (this.sky - restY) * Math.min(1, e * 1.15)
-      : restY + (this.sky - restY) * Math.max(0, e * 1.3 - 0.3);
-    b.core.position.set(b.pos.x, head, b.pos.z);
-    b.core.scale.setScalar(arriving ? 0.001 + 0.09 * e : 0.09 * (1 - e * 0.6));
+      ? sky - (sky - rest) * Math.min(1, e * 1.15)
+      : rest + (sky - rest) * Math.max(0, e * 1.3 - 0.3);
+    this.stand(b.core, b, head);
+    b.core.scale.setScalar((arriving ? 0.001 + 0.09 * e : 0.09 * (1 - e * 0.6)) * s);
     b.halo.position.copy(b.core.position);
     b.halo.scale.setScalar(
       arriving ? HALO * Math.max(0, e * 3 - 2) : HALO * (1 - Math.min(1, e * 3)),
     );
     b.halo.material.opacity = dimA;
     b.stem.visible = true;
-    b.stem.position.set(b.pos.x, (head + tail) / 2, b.pos.z);
-    b.stem.scale.y = Math.max(0.01, Math.abs(head - tail));
+    this.stand(b.stem, b, (head + tail) / 2);
+    b.stem.scale.set(s, Math.max(0.01, Math.abs(head - tail)), s);
     b.light.position.copy(b.core.position);
-    b.light.intensity = 8 * dimA * (arriving ? e : 1 - e);
-    b.light.distance = 8;
-    for (const o of [b.spot, b.band, b.ghost, b.arc, b.work]) o.visible = false;
-    b.core.visible = b.core.scale.x > 0.002;
+    b.light.intensity = 8 * s * s * dimA * (arriving ? e : 1 - e);
+    b.light.distance = 8 * s;
+    for (const o of [b.spot, b.band, b.ghost, b.arc, b.ring, b.work]) o.visible = false;
+    b.core.visible = b.core.scale.x > 0.002 * s;
     if (k >= 1) {
       if (arriving) {
         b.phase = 'live';
@@ -434,54 +517,58 @@ export class Beacons {
   }
 
   private look(b: Beacon, row: Agent | undefined, now: number, dimA: number): void {
+    const s = b.frame.scale;
     const since = now - b.landedAt;
     const flash = Math.exp(-since / 150);
     const k = Math.min(1, since / 500);
     const ease = backOut(k);
     const verb = row?.verb ?? 'idle';
-    const waiting = verb === 'waiting' || verb === 'idle';
+    const waiting = verb === 'waiting' || verb === 'idle' || verb === 'blocked';
     const breathe = 1 + 0.08 * Math.sin(now / (waiting ? 700 : 400) + b.hue);
     if (b.trip) {
-      b.core.position.copy(b.pos).setY(b.pos.y + 0.02);
-      b.core.scale.setScalar(CORE);
+      this.stand(b.core, b, 0.02 * s);
+      b.core.scale.setScalar(CORE * s);
       b.halo.material.opacity = 0;
-      for (const o of [b.stem, b.spot, b.band, b.ghost, b.arc, b.work]) o.visible = false;
-      b.light.position.copy(b.pos).setY(b.pos.y + 0.6);
-      b.light.intensity = 7 * dimA;
-      b.light.distance = 5;
+      for (const o of [b.stem, b.spot, b.band, b.ghost, b.arc, b.ring, b.work]) o.visible = false;
+      b.light.position.copy(b.pos).addScaledVector(b.frame.up, 0.6 * s);
+      b.light.intensity = 7 * s * s * dimA;
+      b.light.distance = 5 * s;
       b.core.visible = true;
       return;
     }
-    const onBlock = b.block !== undefined && this.terrain.has(b.block);
+    const onBlock = b.block !== undefined && this.ground.has(b.block);
     b.lift += ((verb === 'running' || !onBlock ? 0.4 : 0) - b.lift) * 0.1;
-    const y = b.pos.y + REST + RISE * ease * (1 + b.lift);
-    b.core.position.set(b.pos.x, y, b.pos.z);
-    b.core.scale.setScalar((CORE + 0.03 * k) * (1 + 1.6 * flash));
+    const y = (REST + RISE * ease * (1 + b.lift)) * s;
+    this.stand(b.core, b, y);
+    b.core.scale.setScalar((CORE + 0.03 * k) * (1 + 1.6 * flash) * s);
     b.core.visible = true;
     b.halo.position.copy(b.core.position);
     b.halo.scale.setScalar(HALO * k * breathe * (1 + 0.4 * flash) * dimA);
     b.halo.material.opacity = dimA * (waiting ? 0.5 : 1);
     b.stem.visible = true;
-    b.stem.position.set(b.pos.x, (b.pos.y + y) / 2, b.pos.z);
-    b.stem.scale.y = Math.max(0.01, y - b.pos.y);
+    this.stand(b.stem, b, y / 2);
+    b.stem.scale.set(s, Math.max(0.01, y), s);
     b.spot.visible = onBlock;
-    b.spot.position.set(b.pos.x, b.pos.y - 0.02, b.pos.z);
-    b.spot.scale.setScalar(0.9 + 0.1 * breathe + 0.6 * flash);
+    this.stand(b.spot, b, -0.02 * s);
+    b.spot.scale.setScalar((0.9 + 0.1 * breathe + 0.6 * flash) * s);
     b.spot.material.opacity = (0.3 + 0.5 * flash) * dimA;
 
     const scanning = verb === 'reading' && onBlock && since > 400;
     b.band.visible = b.ghost.visible = scanning;
     if (scanning) {
-      const base = PLATFORM_LIFT;
-      const h = Math.max(0.3, b.pos.y - base - 0.07);
+      const foot = b.block !== undefined ? this.ground.foot(b.block) : undefined;
+      const h = foot ? Math.max(0.3 * s, b.pos.distanceTo(foot) - 0.07 * s) : 0.3 * s;
       const kk = (now / 800) % 1;
       const e = kk < 0.5 ? 4 * kk * kk * kk : 1 - Math.pow(-2 * kk + 2, 3) / 2;
       const env = Math.pow(Math.sin(e * Math.PI), 0.7);
-      const floor = base;
-      b.band.position.set(b.pos.x, floor + h * e, b.pos.z);
+      const floor = foot ?? b.pos.clone().addScaledVector(b.frame.up, -h);
+      b.band.position.copy(floor).addScaledVector(b.frame.up, h * e);
+      this.turn(b.band, b);
+      b.band.scale.setScalar(s);
       b.band.material.opacity = 0.9 * env * dimA;
-      b.ghost.position.set(b.pos.x, floor + (h * e) / 2, b.pos.z);
-      b.ghost.scale.y = Math.max(0.01, h * e);
+      b.ghost.position.copy(floor);
+      this.turn(b.ghost, b);
+      b.ghost.scale.set(s, Math.max(0.01, h * e), s);
       b.ghost.material.opacity = 0.16 * (1 - e) * env * dimA;
     }
 
@@ -493,7 +580,8 @@ export class Beacons {
       if (now >= b.nextShock) {
         this.effects.add({
           kind: 'wave',
-          at: top.clone().setY(top.y + 0.075),
+          at: top.clone().addScaledVector(b.frame.up, 0.075 * s),
+          frame: b.frame,
           color: b.color,
           born: now,
           life: 700,
@@ -508,6 +596,7 @@ export class Beacons {
         this.effects.add({
           kind: 'sparks',
           at: top.clone(),
+          frame: b.frame,
           color: b.color,
           born: now,
           life: 550,
@@ -517,7 +606,8 @@ export class Beacons {
       }
       const t = now / 1000;
       b.flicker = 0.15 * Math.sin(t * 37) + 0.1 * Math.sin(t * 23.7) + 0.08 * Math.sin(t * 61.3);
-      b.work.position.set(top.x, top.y + 0.03, top.z);
+      this.stand(b.work, b, 0.03 * s);
+      b.work.scale.set(s, 4 * s, s);
       b.workOpacity.value = (1 + b.flicker * 2) * dimA;
     } else {
       b.flicker = 0;
@@ -529,8 +619,13 @@ export class Beacons {
     b.arc.position.copy(b.core.position);
     b.arc.material.rotation = -(now / 1500) * Math.PI * 2;
     b.arc.material.opacity = dimA;
+    b.ring.visible = verb === 'blocked';
+    b.ring.position.copy(b.core.position);
+    b.ring.material.opacity = dimA;
     b.light.position.copy(b.core.position);
-    b.light.intensity = 8 * dimA * (1 + 2.5 * flash);
-    b.light.distance = 8;
+    b.light.intensity = 8 * s * s * dimA * (1 + 2.5 * flash);
+    b.light.distance = 8 * s;
   }
 }
+
+export { PLATFORM_LIFT };

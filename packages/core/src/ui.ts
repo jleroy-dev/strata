@@ -1,6 +1,45 @@
-import type { BlockId } from './events.js';
+import type { BlockId, HookState } from './events.js';
+import { TRACE_MS } from './memory.js';
+import type { RepoId } from './qualified.js';
 
 export type Mode = 'overview' | 'follow' | 'free';
+
+export type RosterState =
+  'connecting' | 'disconnected' | 'deaf' | 'stale' | 'unheard' | 'quiet' | 'cold' | 'live';
+
+export interface RosterInput {
+  connected: boolean;
+  everConnected: boolean;
+  agents: number;
+  hook?: HookState;
+  lastAgentAt?: number;
+  now: number;
+}
+
+/**
+ * One hook state for the whole roster out of one per mount: drift anywhere is worth saying, a
+ * post anywhere is proof, an installed hook anywhere is a promise, and only a system with no
+ * hook at all is deaf.
+ */
+export function hookStateOf(hooks: ReadonlyMap<RepoId, HookState>): HookState | undefined {
+  if (hooks.size === 0) return undefined;
+  const states = [...hooks.values()];
+  if (states.includes('installed-stale')) return 'installed-stale';
+  if (states.includes('heard')) return 'heard';
+  if (states.includes('installed-unheard')) return 'installed-unheard';
+  return 'no-hook';
+}
+
+/** Which of the empty states the roster is in, or `live` when it has rows to show. */
+export function rosterStateOf(input: RosterInput): RosterState {
+  if (!input.connected) return input.everConnected ? 'disconnected' : 'connecting';
+  if (input.hook === 'installed-stale') return 'stale';
+  if (input.agents > 0) return 'live';
+  if (input.hook === 'no-hook') return 'deaf';
+  if (input.hook === 'installed-unheard') return 'unheard';
+  if (input.lastAgentAt !== undefined && input.now - input.lastAgentAt > TRACE_MS) return 'cold';
+  return 'quiet';
+}
 
 /** Everything the panel's controls have decided; renderers read it, intents change it. */
 export interface Ui {

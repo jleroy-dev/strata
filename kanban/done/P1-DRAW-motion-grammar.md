@@ -33,5 +33,5 @@ Rise, sink, travel and pulse as written in DESIGN.md · Motion, with per-frame c
 
 ## Definition of Done
 
-- [ ] Witnessed on a real repo through the dev server
+- [x] Witnessed on a real repo through the dev server
 - [x] `npm run gate` green

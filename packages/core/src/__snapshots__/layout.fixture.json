@@ -1,7 +1,7 @@
 {
   "blocks": [
     [
-      ".github/workflows/gate.yml",
+      "repo:.github/workflows/gate.yml",
       {
         "cell": {
           "x": 0,
@@ -10,12 +10,12 @@
         "height": 2.423134762099227,
         "size": 1500,
         "binary": false,
-        "country": ".github",
+        "country": "repo:.github",
         "district": "workflows"
       }
     ],
     [
-      ".github/workflows/release.yml",
+      "repo:.github/workflows/release.yml",
       {
         "cell": {
           "x": 1,
@@ -24,12 +24,12 @@
         "height": 2.830395746326983,
         "size": 2200,
         "binary": false,
-        "country": ".github",
+        "country": "repo:.github",
         "district": "workflows"
       }
     ],
     [
-      ".gitignore",
+      "repo:.gitignore",
       {
         "cell": {
           "x": 24,
@@ -38,12 +38,12 @@
         "height": 1.1266194298518437,
         "size": 300,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ],
     [
-      ".prettierrc",
+      "repo:.prettierrc",
       {
         "cell": {
           "x": 25,
@@ -52,12 +52,12 @@
         "height": 0.5237531713749415,
         "size": 40,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ],
     [
-      ".vscode/extensions.json",
+      "repo:.vscode/extensions.json",
       {
         "cell": {
           "x": 5,
@@ -66,12 +66,12 @@
         "height": 0.6635035743050615,
         "size": 90,
         "binary": false,
-        "country": ".vscode",
+        "country": "repo:.vscode",
         "district": ""
       }
     ],
     [
-      ".vscode/settings.json",
+      "repo:.vscode/settings.json",
       {
         "cell": {
           "x": 6,
@@ -80,12 +80,12 @@
         "height": 0.7406604609283569,
         "size": 120,
         "binary": false,
-        "country": ".vscode",
+        "country": "repo:.vscode",
         "district": ""
       }
     ],
     [
-      "CLAUDE.md",
+      "repo:CLAUDE.md",
       {
         "cell": {
           "x": 26,
@@ -94,12 +94,12 @@
         "height": 4.512870047497853,
         "size": 9100,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ],
     [
-      "README.md",
+      "repo:README.md",
       {
         "cell": {
           "x": 27,
@@ -108,12 +108,12 @@
         "height": 3.5712057604513117,
         "size": 4200,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ],
     [
-      "apps/api/project.json",
+      "repo:apps/api/project.json",
       {
         "cell": {
           "x": 3,
@@ -122,12 +122,12 @@
         "height": 1.7134884567735678,
         "size": 700,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": ""
       }
     ],
     [
-      "apps/api/src/app/app.controller.ts",
+      "repo:apps/api/src/app/app.controller.ts",
       {
         "cell": {
           "x": 0,
@@ -136,12 +136,12 @@
         "height": 2.2,
         "size": 1200,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/app"
       }
     ],
     [
-      "apps/api/src/app/app.module.ts",
+      "repo:apps/api/src/app/app.module.ts",
       {
         "cell": {
           "x": 1,
@@ -150,12 +150,12 @@
         "height": 1.9303957463269832,
         "size": 900,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/app"
       }
     ],
     [
-      "apps/api/src/app/app.service.ts",
+      "repo:apps/api/src/app/app.service.ts",
       {
         "cell": {
           "x": 2,
@@ -164,12 +164,12 @@
         "height": 1.8264662506490406,
         "size": 800,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/app"
       }
     ],
     [
-      "apps/api/src/app/rooms/rooms.controller.ts",
+      "repo:apps/api/src/app/rooms/rooms.controller.ts",
       {
         "cell": {
           "x": 4,
@@ -178,12 +178,12 @@
         "height": 3.21635471525047,
         "size": 3100,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/app/rooms"
       }
     ],
     [
-      "apps/api/src/app/rooms/rooms.service.spec.ts",
+      "repo:apps/api/src/app/rooms/rooms.service.spec.ts",
       {
         "cell": {
           "x": 5,
@@ -192,12 +192,12 @@
         "height": 4.289735285398627,
         "size": 7600,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/app/rooms"
       }
     ],
     [
-      "apps/api/src/app/rooms/rooms.service.ts",
+      "repo:apps/api/src/app/rooms/rooms.service.ts",
       {
         "cell": {
           "x": 6,
@@ -206,12 +206,12 @@
         "height": 3.826619429851844,
         "size": 5200,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/app/rooms"
       }
     ],
     [
-      "apps/api/src/assets/schema.json",
+      "repo:apps/api/src/assets/schema.json",
       {
         "cell": {
           "x": 0,
@@ -220,12 +220,12 @@
         "height": 4.858776679348188,
         "size": 12000,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/assets"
       }
     ],
     [
-      "apps/api/src/database/migrate.ts",
+      "repo:apps/api/src/database/migrate.ts",
       {
         "cell": {
           "x": 3,
@@ -234,12 +234,12 @@
         "height": 2.7794705707972525,
         "size": 2100,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/database"
       }
     ],
     [
-      "apps/api/src/database/migrations/001_init.sql",
+      "repo:apps/api/src/database/migrations/001_init.sql",
       {
         "cell": {
           "x": 0,
@@ -248,12 +248,12 @@
         "height": 3.323134762099227,
         "size": 3400,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/database/migrations"
       }
     ],
     [
-      "apps/api/src/database/migrations/002_rooms.sql",
+      "repo:apps/api/src/database/migrations/002_rooms.sql",
       {
         "cell": {
           "x": 1,
@@ -262,12 +262,12 @@
         "height": 1.9303957463269832,
         "size": 900,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src/database/migrations"
       }
     ],
     [
-      "apps/api/src/main.ts",
+      "repo:apps/api/src/main.ts",
       {
         "cell": {
           "x": 6,
@@ -276,12 +276,12 @@
         "height": 2.352932501298081,
         "size": 1400,
         "binary": false,
-        "country": "apps/api",
+        "country": "repo:apps/api",
         "district": "src"
       }
     ],
     [
-      "apps/web-e2e/project.json",
+      "repo:apps/web-e2e/project.json",
       {
         "cell": {
           "x": 22,
@@ -290,12 +290,12 @@
         "height": 1.4529325012980814,
         "size": 500,
         "binary": false,
-        "country": "apps/web-e2e",
+        "country": "repo:apps/web-e2e",
         "district": ""
       }
     ],
     [
-      "apps/web-e2e/src/home.spec.ts",
+      "repo:apps/web-e2e/src/home.spec.ts",
       {
         "cell": {
           "x": 22,
@@ -304,12 +304,12 @@
         "height": 2.830395746326983,
         "size": 2200,
         "binary": false,
-        "country": "apps/web-e2e",
+        "country": "repo:apps/web-e2e",
         "district": "src"
       }
     ],
     [
-      "apps/web-e2e/src/room.spec.ts",
+      "repo:apps/web-e2e/src/room.spec.ts",
       {
         "cell": {
           "x": 23,
@@ -318,12 +318,12 @@
         "height": 3.21635471525047,
         "size": 3100,
         "binary": false,
-        "country": "apps/web-e2e",
+        "country": "repo:apps/web-e2e",
         "district": "src"
       }
     ],
     [
-      "apps/web/index.html",
+      "repo:apps/web/index.html",
       {
         "cell": {
           "x": 11,
@@ -332,12 +332,12 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": ""
       }
     ],
     [
-      "apps/web/project.json",
+      "repo:apps/web/project.json",
       {
         "cell": {
           "x": 12,
@@ -346,12 +346,12 @@
         "height": 1.8264662506490406,
         "size": 800,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": ""
       }
     ],
     [
-      "apps/web/src/app/app.component.html",
+      "repo:apps/web/src/app/app.component.html",
       {
         "cell": {
           "x": 11,
@@ -360,12 +360,12 @@
         "height": 2.2787165571253056,
         "size": 1300,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/app"
       }
     ],
     [
-      "apps/web/src/app/app.component.ts",
+      "repo:apps/web/src/app/app.component.ts",
       {
         "cell": {
           "x": 12,
@@ -374,12 +374,12 @@
         "height": 3.016201536047667,
         "size": 2600,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/app"
       }
     ],
     [
-      "apps/web/src/app/app.routes.ts",
+      "repo:apps/web/src/app/app.routes.ts",
       {
         "cell": {
           "x": 13,
@@ -388,12 +388,12 @@
         "height": 1.7134884567735678,
         "size": 700,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/app"
       }
     ],
     [
-      "apps/web/src/app/pages/home.page.ts",
+      "repo:apps/web/src/app/pages/home.page.ts",
       {
         "cell": {
           "x": 15,
@@ -402,12 +402,12 @@
         "height": 3.4836382792318883,
         "size": 3900,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/app/pages"
       }
     ],
     [
-      "apps/web/src/app/pages/room.page.spec.ts",
+      "repo:apps/web/src/app/pages/room.page.spec.ts",
       {
         "cell": {
           "x": 16,
@@ -416,12 +416,12 @@
         "height": 3.6264662506490404,
         "size": 4400,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/app/pages"
       }
     ],
     [
-      "apps/web/src/app/pages/room.page.ts",
+      "repo:apps/web/src/app/pages/room.page.ts",
       {
         "cell": {
           "x": 17,
@@ -430,12 +430,12 @@
         "height": 4.020131031725609,
         "size": 6100,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/app/pages"
       }
     ],
     [
-      "apps/web/src/assets/fonts/inter-bold.woff2",
+      "repo:apps/web/src/assets/fonts/inter-bold.woff2",
       {
         "cell": {
           "x": 17,
@@ -444,12 +444,12 @@
         "height": 0.4,
         "size": 320000,
         "binary": true,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/assets/fonts"
       }
     ],
     [
-      "apps/web/src/assets/fonts/inter.woff2",
+      "repo:apps/web/src/assets/fonts/inter.woff2",
       {
         "cell": {
           "x": 18,
@@ -458,12 +458,12 @@
         "height": 0.4,
         "size": 310000,
         "binary": true,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/assets/fonts"
       }
     ],
     [
-      "apps/web/src/assets/logo.svg",
+      "repo:apps/web/src/assets/logo.svg",
       {
         "cell": {
           "x": 11,
@@ -472,12 +472,12 @@
         "height": 0.4,
         "size": 3200,
         "binary": true,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src/assets"
       }
     ],
     [
-      "apps/web/src/main.ts",
+      "repo:apps/web/src/main.ts",
       {
         "cell": {
           "x": 14,
@@ -486,12 +486,12 @@
         "height": 1.4529325012980814,
         "size": 500,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src"
       }
     ],
     [
-      "apps/web/src/styles.scss",
+      "repo:apps/web/src/styles.scss",
       {
         "cell": {
           "x": 15,
@@ -500,12 +500,12 @@
         "height": 3.1,
         "size": 2800,
         "binary": false,
-        "country": "apps/web",
+        "country": "repo:apps/web",
         "district": "src"
       }
     ],
     [
-      "docs/DESIGN.md",
+      "repo:docs/DESIGN.md",
       {
         "cell": {
           "x": 0,
@@ -514,12 +514,12 @@
         "height": 5.567320287761033,
         "size": 21000,
         "binary": false,
-        "country": "docs",
+        "country": "repo:docs",
         "district": ""
       }
     ],
     [
-      "docs/NOTES.md",
+      "repo:docs/NOTES.md",
       {
         "cell": {
           "x": 1,
@@ -528,12 +528,12 @@
         "height": 4.078716557125305,
         "size": 6400,
         "binary": false,
-        "country": "docs",
+        "country": "repo:docs",
         "district": ""
       }
     ],
     [
-      "docs/img/overview.png",
+      "repo:docs/img/overview.png",
       {
         "cell": {
           "x": 3,
@@ -542,12 +542,12 @@
         "height": 0.4,
         "size": 240000,
         "binary": true,
-        "country": "docs",
+        "country": "repo:docs",
         "district": "img"
       }
     ],
     [
-      "docs/img/palette.png",
+      "repo:docs/img/palette.png",
       {
         "cell": {
           "x": 4,
@@ -556,12 +556,12 @@
         "height": 0.4,
         "size": 98000,
         "binary": true,
-        "country": "docs",
+        "country": "repo:docs",
         "district": "img"
       }
     ],
     [
-      "docs/mockups/board.html",
+      "repo:docs/mockups/board.html",
       {
         "cell": {
           "x": 0,
@@ -570,12 +570,12 @@
         "height": 5.371205760451312,
         "size": 18000,
         "binary": false,
-        "country": "docs",
+        "country": "repo:docs",
         "district": "mockups"
       }
     ],
     [
-      "kanban/README.md",
+      "repo:kanban/README.md",
       {
         "cell": {
           "x": 8,
@@ -584,12 +584,12 @@
         "height": 1.7134884567735678,
         "size": 700,
         "binary": false,
-        "country": "kanban",
+        "country": "repo:kanban",
         "district": ""
       }
     ],
     [
-      "kanban/done/P0-scaffold.md",
+      "repo:kanban/done/P0-scaffold.md",
       {
         "cell": {
           "x": 11,
@@ -598,12 +598,12 @@
         "height": 2.352932501298081,
         "size": 1400,
         "binary": false,
-        "country": "kanban",
+        "country": "repo:kanban",
         "district": "done"
       }
     ],
     [
-      "kanban/todo/P1-search.md",
+      "repo:kanban/todo/P1-search.md",
       {
         "cell": {
           "x": 8,
@@ -612,12 +612,12 @@
         "height": 2.6712057604513118,
         "size": 1900,
         "binary": false,
-        "country": "kanban",
+        "country": "repo:kanban",
         "district": "todo"
       }
     ],
     [
-      "libs/shared/models/project.json",
+      "repo:libs/shared/models/project.json",
       {
         "cell": {
           "x": 19,
@@ -626,12 +626,12 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "libs/shared/models",
+        "country": "repo:libs/shared/models",
         "district": ""
       }
     ],
     [
-      "libs/shared/models/src/index.ts",
+      "repo:libs/shared/models/src/index.ts",
       {
         "cell": {
           "x": 22,
@@ -640,12 +640,12 @@
         "height": 0.9264662506490406,
         "size": 200,
         "binary": false,
-        "country": "libs/shared/models",
+        "country": "repo:libs/shared/models",
         "district": "src"
       }
     ],
     [
-      "libs/shared/models/src/lib/room.ts",
+      "repo:libs/shared/models/src/lib/room.ts",
       {
         "cell": {
           "x": 19,
@@ -654,12 +654,12 @@
         "height": 1.8264662506490406,
         "size": 800,
         "binary": false,
-        "country": "libs/shared/models",
+        "country": "repo:libs/shared/models",
         "district": "src/lib"
       }
     ],
     [
-      "libs/shared/models/src/lib/story.ts",
+      "repo:libs/shared/models/src/lib/story.ts",
       {
         "cell": {
           "x": 20,
@@ -668,12 +668,12 @@
         "height": 2.352932501298081,
         "size": 1400,
         "binary": false,
-        "country": "libs/shared/models",
+        "country": "repo:libs/shared/models",
         "district": "src/lib"
       }
     ],
     [
-      "libs/shared/models/src/lib/user.ts",
+      "repo:libs/shared/models/src/lib/user.ts",
       {
         "cell": {
           "x": 21,
@@ -682,12 +682,12 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "libs/shared/models",
+        "country": "repo:libs/shared/models",
         "district": "src/lib"
       }
     ],
     [
-      "libs/shared/ui/project.json",
+      "repo:libs/shared/ui/project.json",
       {
         "cell": {
           "x": 3,
@@ -696,12 +696,12 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": ""
       }
     ],
     [
-      "libs/shared/ui/src/index.ts",
+      "repo:libs/shared/ui/src/index.ts",
       {
         "cell": {
           "x": 0,
@@ -710,12 +710,12 @@
         "height": 1.1266194298518437,
         "size": 300,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src"
       }
     ],
     [
-      "libs/shared/ui/src/lib/button/button.component.html",
+      "repo:libs/shared/ui/src/lib/button/button.component.html",
       {
         "cell": {
           "x": 0,
@@ -724,12 +724,12 @@
         "height": 1.3,
         "size": 400,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/button"
       }
     ],
     [
-      "libs/shared/ui/src/lib/button/button.component.spec.ts",
+      "repo:libs/shared/ui/src/lib/button/button.component.spec.ts",
       {
         "cell": {
           "x": 1,
@@ -738,12 +738,12 @@
         "height": 2.7794705707972525,
         "size": 2100,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/button"
       }
     ],
     [
-      "libs/shared/ui/src/lib/button/button.component.ts",
+      "repo:libs/shared/ui/src/lib/button/button.component.ts",
       {
         "cell": {
           "x": 2,
@@ -752,12 +752,12 @@
         "height": 2.6712057604513118,
         "size": 1900,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/button"
       }
     ],
     [
-      "libs/shared/ui/src/lib/dialog/dialog.component.html",
+      "repo:libs/shared/ui/src/lib/dialog/dialog.component.html",
       {
         "cell": {
           "x": 4,
@@ -766,12 +766,12 @@
         "height": 1.9303957463269832,
         "size": 900,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/dialog"
       }
     ],
     [
-      "libs/shared/ui/src/lib/dialog/dialog.component.ts",
+      "repo:libs/shared/ui/src/lib/dialog/dialog.component.ts",
       {
         "cell": {
           "x": 5,
@@ -780,12 +780,12 @@
         "height": 3.5991299665098735,
         "size": 4300,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/dialog"
       }
     ],
     [
-      "libs/shared/ui/src/lib/dialog/dialog.service.ts",
+      "repo:libs/shared/ui/src/lib/dialog/dialog.service.ts",
       {
         "cell": {
           "x": 6,
@@ -794,12 +794,12 @@
         "height": 2.5530856805008844,
         "size": 1700,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/dialog"
       }
     ],
     [
-      "libs/shared/ui/src/lib/toast/toast.component.ts",
+      "repo:libs/shared/ui/src/lib/toast/toast.component.ts",
       {
         "cell": {
           "x": 0,
@@ -808,12 +808,12 @@
         "height": 2.423134762099227,
         "size": 1500,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/toast"
       }
     ],
     [
-      "libs/shared/ui/src/lib/toast/toast.service.ts",
+      "repo:libs/shared/ui/src/lib/toast/toast.service.ts",
       {
         "cell": {
           "x": 1,
@@ -822,12 +822,12 @@
         "height": 2.1162015360476665,
         "size": 1100,
         "binary": false,
-        "country": "libs/shared/ui",
+        "country": "repo:libs/shared/ui",
         "district": "src/lib/toast"
       }
     ],
     [
-      "libs/shared/utils/project.json",
+      "repo:libs/shared/utils/project.json",
       {
         "cell": {
           "x": 27,
@@ -836,12 +836,12 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "libs/shared/utils",
+        "country": "repo:libs/shared/utils",
         "district": ""
       }
     ],
     [
-      "libs/shared/utils/src/index.ts",
+      "repo:libs/shared/utils/src/index.ts",
       {
         "cell": {
           "x": 30,
@@ -850,12 +850,12 @@
         "height": 1.030395746326983,
         "size": 250,
         "binary": false,
-        "country": "libs/shared/utils",
+        "country": "repo:libs/shared/utils",
         "district": "src"
       }
     ],
     [
-      "libs/shared/utils/src/lib/format.spec.ts",
+      "repo:libs/shared/utils/src/lib/format.spec.ts",
       {
         "cell": {
           "x": 27,
@@ -864,12 +864,12 @@
         "height": 3.139954707422608,
         "size": 2900,
         "binary": false,
-        "country": "libs/shared/utils",
+        "country": "repo:libs/shared/utils",
         "district": "src/lib"
       }
     ],
     [
-      "libs/shared/utils/src/lib/format.ts",
+      "repo:libs/shared/utils/src/lib/format.ts",
       {
         "cell": {
           "x": 28,
@@ -878,12 +878,12 @@
         "height": 2.2787165571253056,
         "size": 1300,
         "binary": false,
-        "country": "libs/shared/utils",
+        "country": "repo:libs/shared/utils",
         "district": "src/lib"
       }
     ],
     [
-      "libs/shared/utils/src/lib/guard.ts",
+      "repo:libs/shared/utils/src/lib/guard.ts",
       {
         "cell": {
           "x": 29,
@@ -892,12 +892,12 @@
         "height": 1.7134884567735678,
         "size": 700,
         "binary": false,
-        "country": "libs/shared/utils",
+        "country": "repo:libs/shared/utils",
         "district": "src/lib"
       }
     ],
     [
-      "libs/story/engine/project.json",
+      "repo:libs/story/engine/project.json",
       {
         "cell": {
           "x": 10,
@@ -906,12 +906,12 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": ""
       }
     ],
     [
-      "libs/story/engine/src/index.ts",
+      "repo:libs/story/engine/src/index.ts",
       {
         "cell": {
           "x": 13,
@@ -920,12 +920,12 @@
         "height": 1.1266194298518437,
         "size": 300,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src"
       }
     ],
     [
-      "libs/story/engine/src/lib/engine.spec.ts",
+      "repo:libs/story/engine/src/lib/engine.spec.ts",
       {
         "cell": {
           "x": 10,
@@ -934,12 +934,12 @@
         "height": 5.626619429851844,
         "size": 22000,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib"
       }
     ],
     [
-      "libs/story/engine/src/lib/engine.ts",
+      "repo:libs/story/engine/src/lib/engine.ts",
       {
         "cell": {
           "x": 11,
@@ -948,12 +948,12 @@
         "height": 5.0529325012980815,
         "size": 14000,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib"
       }
     ],
     [
-      "libs/story/engine/src/lib/fixtures/sample.mp3",
+      "repo:libs/story/engine/src/lib/fixtures/sample.mp3",
       {
         "cell": {
           "x": 14,
@@ -962,12 +962,12 @@
         "height": 0.4,
         "size": 2400000,
         "binary": true,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib/fixtures"
       }
     ],
     [
-      "libs/story/engine/src/lib/fixtures/sample.story",
+      "repo:libs/story/engine/src/lib/fixtures/sample.story",
       {
         "cell": {
           "x": 15,
@@ -976,12 +976,12 @@
         "height": 3.542667786696707,
         "size": 4100,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib/fixtures"
       }
     ],
     [
-      "libs/story/engine/src/lib/parser.spec.ts",
+      "repo:libs/story/engine/src/lib/parser.spec.ts",
       {
         "cell": {
           "x": 12,
@@ -990,12 +990,12 @@
         "height": 4.566420958071649,
         "size": 9500,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib"
       }
     ],
     [
-      "libs/story/engine/src/lib/parser.ts",
+      "repo:libs/story/engine/src/lib/parser.ts",
       {
         "cell": {
           "x": 10,
@@ -1004,12 +1004,12 @@
         "height": 4.152932501298081,
         "size": 6800,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib"
       }
     ],
     [
-      "libs/story/engine/src/lib/tokens.ts",
+      "repo:libs/story/engine/src/lib/tokens.ts",
       {
         "cell": {
           "x": 11,
@@ -1018,12 +1018,12 @@
         "height": 2.2,
         "size": 1200,
         "binary": false,
-        "country": "libs/story/engine",
+        "country": "repo:libs/story/engine",
         "district": "src/lib"
       }
     ],
     [
-      "nx.json",
+      "repo:nx.json",
       {
         "cell": {
           "x": 24,
@@ -1032,12 +1032,12 @@
         "height": 2.1162015360476665,
         "size": 1100,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ],
     [
-      "package.json",
+      "repo:package.json",
       {
         "cell": {
           "x": 25,
@@ -1046,12 +1046,12 @@
         "height": 2.6134884567735677,
         "size": 1800,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ],
     [
-      "tools/generators/lib/files/index.ts.template",
+      "repo:tools/generators/lib/files/index.ts.template",
       {
         "cell": {
           "x": 16,
@@ -1060,12 +1060,12 @@
         "height": 1.3,
         "size": 400,
         "binary": false,
-        "country": "tools",
+        "country": "repo:tools",
         "district": "generators/lib/files"
       }
     ],
     [
-      "tools/generators/lib/index.ts",
+      "repo:tools/generators/lib/index.ts",
       {
         "cell": {
           "x": 19,
@@ -1074,12 +1074,12 @@
         "height": 3.2885080290660547,
         "size": 3300,
         "binary": false,
-        "country": "tools",
+        "country": "repo:tools",
         "district": "generators/lib"
       }
     ],
     [
-      "tools/scripts/dump.mjs",
+      "repo:tools/scripts/dump.mjs",
       {
         "cell": {
           "x": 16,
@@ -1088,12 +1088,12 @@
         "height": 2.2,
         "size": 1200,
         "binary": false,
-        "country": "tools",
+        "country": "repo:tools",
         "district": "scripts"
       }
     ],
     [
-      "tools/scripts/seed.ts",
+      "repo:tools/scripts/seed.ts",
       {
         "cell": {
           "x": 17,
@@ -1102,12 +1102,12 @@
         "height": 2.8793987519471216,
         "size": 2300,
         "binary": false,
-        "country": "tools",
+        "country": "repo:tools",
         "district": "scripts"
       }
     ],
     [
-      "tsconfig.base.json",
+      "repo:tsconfig.base.json",
       {
         "cell": {
           "x": 26,
@@ -1116,14 +1116,14 @@
         "height": 1.5897352853986262,
         "size": 600,
         "binary": false,
-        "country": "",
+        "country": "repo:",
         "district": ""
       }
     ]
   ],
   "districts": [
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "src/app",
       "x": 0,
       "z": 0,
@@ -1131,7 +1131,7 @@
       "h": 2
     },
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "src/app/rooms",
       "x": 4,
       "z": 0,
@@ -1139,7 +1139,7 @@
       "h": 2
     },
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "src/database/migrations",
       "x": 0,
       "z": 3,
@@ -1147,7 +1147,7 @@
       "h": 2
     },
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "",
       "x": 3,
       "z": 3,
@@ -1155,7 +1155,7 @@
       "h": 2
     },
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "src",
       "x": 6,
       "z": 3,
@@ -1163,7 +1163,7 @@
       "h": 2
     },
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "src/assets",
       "x": 0,
       "z": 6,
@@ -1171,7 +1171,7 @@
       "h": 2
     },
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "district": "src/database",
       "x": 3,
       "z": 6,
@@ -1179,7 +1179,7 @@
       "h": 2
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "district": "src/app",
       "x": 11,
       "z": 0,
@@ -1187,7 +1187,7 @@
       "h": 2
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "district": "src/app/pages",
       "x": 15,
       "z": 0,
@@ -1195,7 +1195,7 @@
       "h": 2
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "district": "",
       "x": 11,
       "z": 3,
@@ -1203,7 +1203,7 @@
       "h": 2
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "district": "src",
       "x": 14,
       "z": 3,
@@ -1211,7 +1211,7 @@
       "h": 2
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "district": "src/assets/fonts",
       "x": 17,
       "z": 3,
@@ -1219,7 +1219,7 @@
       "h": 2
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "district": "src/assets",
       "x": 11,
       "z": 6,
@@ -1227,7 +1227,7 @@
       "h": 2
     },
     {
-      "country": "apps/web-e2e",
+      "country": "repo:apps/web-e2e",
       "district": "src",
       "x": 22,
       "z": 0,
@@ -1235,7 +1235,7 @@
       "h": 2
     },
     {
-      "country": "apps/web-e2e",
+      "country": "repo:apps/web-e2e",
       "district": "",
       "x": 22,
       "z": 3,
@@ -1243,7 +1243,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/ui",
+      "country": "repo:libs/shared/ui",
       "district": "src/lib/button",
       "x": 0,
       "z": 11,
@@ -1251,7 +1251,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/ui",
+      "country": "repo:libs/shared/ui",
       "district": "src/lib/dialog",
       "x": 4,
       "z": 11,
@@ -1259,7 +1259,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/ui",
+      "country": "repo:libs/shared/ui",
       "district": "src/lib/toast",
       "x": 0,
       "z": 14,
@@ -1267,7 +1267,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/ui",
+      "country": "repo:libs/shared/ui",
       "district": "",
       "x": 3,
       "z": 14,
@@ -1275,7 +1275,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/ui",
+      "country": "repo:libs/shared/ui",
       "district": "src",
       "x": 0,
       "z": 17,
@@ -1283,7 +1283,7 @@
       "h": 2
     },
     {
-      "country": "libs/story/engine",
+      "country": "repo:libs/story/engine",
       "district": "src/lib",
       "x": 10,
       "z": 11,
@@ -1291,7 +1291,7 @@
       "h": 3
     },
     {
-      "country": "libs/story/engine",
+      "country": "repo:libs/story/engine",
       "district": "src/lib/fixtures",
       "x": 14,
       "z": 11,
@@ -1299,7 +1299,7 @@
       "h": 2
     },
     {
-      "country": "libs/story/engine",
+      "country": "repo:libs/story/engine",
       "district": "",
       "x": 10,
       "z": 15,
@@ -1307,7 +1307,7 @@
       "h": 2
     },
     {
-      "country": "libs/story/engine",
+      "country": "repo:libs/story/engine",
       "district": "src",
       "x": 13,
       "z": 15,
@@ -1315,7 +1315,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/models",
+      "country": "repo:libs/shared/models",
       "district": "src/lib",
       "x": 19,
       "z": 11,
@@ -1323,7 +1323,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/models",
+      "country": "repo:libs/shared/models",
       "district": "",
       "x": 19,
       "z": 14,
@@ -1331,7 +1331,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/models",
+      "country": "repo:libs/shared/models",
       "district": "src",
       "x": 22,
       "z": 14,
@@ -1339,7 +1339,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/utils",
+      "country": "repo:libs/shared/utils",
       "district": "src/lib",
       "x": 27,
       "z": 11,
@@ -1347,7 +1347,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/utils",
+      "country": "repo:libs/shared/utils",
       "district": "",
       "x": 27,
       "z": 14,
@@ -1355,7 +1355,7 @@
       "h": 2
     },
     {
-      "country": "libs/shared/utils",
+      "country": "repo:libs/shared/utils",
       "district": "src",
       "x": 30,
       "z": 14,
@@ -1363,7 +1363,7 @@
       "h": 2
     },
     {
-      "country": "docs",
+      "country": "repo:docs",
       "district": "",
       "x": 0,
       "z": 22,
@@ -1371,7 +1371,7 @@
       "h": 2
     },
     {
-      "country": "docs",
+      "country": "repo:docs",
       "district": "img",
       "x": 3,
       "z": 22,
@@ -1379,7 +1379,7 @@
       "h": 2
     },
     {
-      "country": "docs",
+      "country": "repo:docs",
       "district": "mockups",
       "x": 0,
       "z": 25,
@@ -1387,7 +1387,7 @@
       "h": 2
     },
     {
-      "country": "kanban",
+      "country": "repo:kanban",
       "district": "",
       "x": 8,
       "z": 22,
@@ -1395,7 +1395,7 @@
       "h": 2
     },
     {
-      "country": "kanban",
+      "country": "repo:kanban",
       "district": "done",
       "x": 11,
       "z": 22,
@@ -1403,7 +1403,7 @@
       "h": 2
     },
     {
-      "country": "kanban",
+      "country": "repo:kanban",
       "district": "todo",
       "x": 8,
       "z": 25,
@@ -1411,7 +1411,7 @@
       "h": 2
     },
     {
-      "country": "tools",
+      "country": "repo:tools",
       "district": "scripts",
       "x": 16,
       "z": 22,
@@ -1419,7 +1419,7 @@
       "h": 2
     },
     {
-      "country": "tools",
+      "country": "repo:tools",
       "district": "generators/lib",
       "x": 19,
       "z": 22,
@@ -1427,7 +1427,7 @@
       "h": 2
     },
     {
-      "country": "tools",
+      "country": "repo:tools",
       "district": "generators/lib/files",
       "x": 16,
       "z": 25,
@@ -1435,7 +1435,7 @@
       "h": 2
     },
     {
-      "country": "",
+      "country": "repo:",
       "district": "",
       "x": 24,
       "z": 22,
@@ -1443,7 +1443,7 @@
       "h": 3
     },
     {
-      "country": ".github",
+      "country": "repo:.github",
       "district": "workflows",
       "x": 0,
       "z": 30,
@@ -1451,7 +1451,7 @@
       "h": 2
     },
     {
-      "country": ".vscode",
+      "country": "repo:.vscode",
       "district": "",
       "x": 5,
       "z": 30,
@@ -1461,7 +1461,7 @@
   ],
   "countries": [
     {
-      "country": "apps/api",
+      "country": "repo:apps/api",
       "family": "apps",
       "variant": 2,
       "x": 0,
@@ -1470,7 +1470,7 @@
       "h": 8
     },
     {
-      "country": "apps/web",
+      "country": "repo:apps/web",
       "family": "apps",
       "variant": 0,
       "x": 11,
@@ -1479,7 +1479,7 @@
       "h": 8
     },
     {
-      "country": "apps/web-e2e",
+      "country": "repo:apps/web-e2e",
       "family": "apps",
       "variant": 1,
       "x": 22,
@@ -1488,7 +1488,7 @@
       "h": 5
     },
     {
-      "country": "libs/shared/ui",
+      "country": "repo:libs/shared/ui",
       "family": "libs",
       "variant": 1,
       "x": 0,
@@ -1497,7 +1497,7 @@
       "h": 8
     },
     {
-      "country": "libs/story/engine",
+      "country": "repo:libs/story/engine",
       "family": "libs",
       "variant": 2,
       "x": 10,
@@ -1506,7 +1506,7 @@
       "h": 6
     },
     {
-      "country": "libs/shared/models",
+      "country": "repo:libs/shared/models",
       "family": "libs",
       "variant": 1,
       "x": 19,
@@ -1515,7 +1515,7 @@
       "h": 5
     },
     {
-      "country": "libs/shared/utils",
+      "country": "repo:libs/shared/utils",
       "family": "libs",
       "variant": 0,
       "x": 27,
@@ -1524,7 +1524,7 @@
       "h": 5
     },
     {
-      "country": "docs",
+      "country": "repo:docs",
       "family": "docs",
       "variant": 0,
       "x": 0,
@@ -1533,7 +1533,7 @@
       "h": 5
     },
     {
-      "country": "kanban",
+      "country": "repo:kanban",
       "family": "docs",
       "variant": 1,
       "x": 8,
@@ -1542,7 +1542,7 @@
       "h": 5
     },
     {
-      "country": "tools",
+      "country": "repo:tools",
       "family": "plumbing",
       "variant": 0,
       "x": 16,
@@ -1551,7 +1551,7 @@
       "h": 5
     },
     {
-      "country": "",
+      "country": "repo:",
       "family": "plumbing",
       "variant": 1,
       "x": 24,
@@ -1560,7 +1560,7 @@
       "h": 3
     },
     {
-      "country": ".github",
+      "country": "repo:.github",
       "family": "plumbing",
       "variant": 1,
       "x": 0,
@@ -1569,7 +1569,7 @@
       "h": 2
     },
     {
-      "country": ".vscode",
+      "country": "repo:.vscode",
       "family": "plumbing",
       "variant": 2,
       "x": 5,
@@ -1578,8 +1578,31 @@
       "h": 2
     }
   ],
-  "extent": {
-    "w": 32,
-    "h": 32
+  "continents": [
+    {
+      "repo": "repo",
+      "extent": {
+        "w": 32,
+        "h": 32
+      },
+      "land": {
+        "x": 0,
+        "z": 0,
+        "w": 36.4,
+        "h": 36.4
+      },
+      "claim": {
+        "w": 40,
+        "h": 40
+      },
+      "at": {
+        "x": 2.2,
+        "z": 2.2
+      }
+    }
+  ],
+  "world": {
+    "w": 40,
+    "h": 40
   }
 }

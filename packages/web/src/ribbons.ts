@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import { DISSOLVE_MS, TRAIL_MS } from '@strata/core';
 import type { Segment, SegmentSource } from './lines.js';
 
+/** Cells above the platform where street light lies. */
 export const GROUND_Y = 0.29;
 
 export interface Trail {
@@ -41,11 +42,9 @@ export class Ribbons implements SegmentSource {
       let k = 1 - (now - t.at) / this.life;
       if (t.dyingAt !== undefined) k = Math.min(k, 1 - (now - t.dyingAt) / DISSOLVE_MS);
       if (k <= 0) continue;
-      const a = t.a.clone().setY(GROUND_Y);
-      const b = t.b.clone().setY(GROUND_Y);
       yield {
-        a,
-        b,
+        a: t.a,
+        b: t.b,
         color: t.color.clone().multiplyScalar((0.2 + 10 * k * k * k) * this.dim(t.agentId)),
       };
     }

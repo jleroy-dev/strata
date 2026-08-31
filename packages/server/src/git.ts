@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { Entry, Listing } from '@strata/core';
+import { repoPath, type Entry, type Listing, type RepoPath } from '@strata/core';
 
 const run = promisify(execFile);
 const MAX_BUFFER = 256 * 1024 * 1024;
@@ -34,15 +34,15 @@ export async function listFiles(
     git(root, ['ls-files', '-z', '--others', '--exclude-standard']),
   ]);
   const gone = new Set(fields(deleted));
-  const listing = new Map<string, Entry>();
+  const listing = new Map<RepoPath, Entry>();
   for (const line of fields(tracked)) {
     const tab = line.indexOf('\t');
     const [, sha] = line.slice(0, tab).split(' ');
     const path = line.slice(tab + 1);
     if (gone.has(path)) continue;
-    listing.set(path, sha ? { size: 0, sha } : { size: 0 });
+    listing.set(repoPath(path), sha ? { size: 0, sha } : { size: 0 });
   }
-  for (const path of fields(untracked)) listing.set(path, { size: 0 });
+  for (const path of fields(untracked)) listing.set(repoPath(path), { size: 0 });
 
   await Promise.all(
     [...listing].map(async ([path, entry]) => {
@@ -64,8 +64,8 @@ export async function listFiles(
 /** Blob shas of working-tree files, so a moved tracked file can be matched to its index entry. */
 export async function hashFiles(
   root: string,
-  paths: readonly string[],
-): Promise<Map<string, string>> {
+  paths: readonly RepoPath[],
+): Promise<Map<RepoPath, string>> {
   const present = paths.filter((path) => existsSync(resolve(root, path)));
   if (present.length === 0) return new Map();
   try {

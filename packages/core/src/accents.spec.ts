@@ -4,6 +4,7 @@ import { FIXTURE_FILES } from './fixtures/repo.js';
 import { placeBlocks } from './hierarchy.js';
 import { COUNTRY_GAP, layoutOf } from './layout.js';
 import { adjacent } from './shelf.js';
+import { REPO } from './fixtures/ids.js';
 
 const plate = (x: number, z: number, w = 4, h = 4, variant = NO_VARIANT): Plate => ({
   x,
@@ -40,6 +41,7 @@ describe('assignVariants', () => {
   it('separates every touching pair on the fixture', () => {
     const layout = layoutOf(
       placeBlocks(
+        REPO,
         FIXTURE_FILES.map(([id]) => id),
         new Map(FIXTURE_FILES),
       ),

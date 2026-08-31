@@ -1,45 +1,46 @@
 import * as THREE from 'three';
 import { easeOutCubic } from './tween.js';
 
+/** Where an effect stands: its radial and how many world units one of its cells is. */
+export interface Frame {
+  up: THREE.Vector3;
+  scale: number;
+  /** The lattice-aligned rotation at the point, when there is a lattice to align with. */
+  quaternion?: THREE.Quaternion;
+}
+
+interface Placed {
+  at: THREE.Vector3;
+  frame: Frame;
+  born: number;
+  life: number;
+}
+
 export type Effect =
-  | {
+  | ({
       kind: 'wave';
-      at: THREE.Vector3;
       color: THREE.Color;
-      born: number;
-      life: number;
       second: boolean;
       radius: number;
       mult: number;
-    }
-  | { kind: 'beam'; at: THREE.Vector3; color: THREE.Color; born: number; life: number }
-  | {
-      kind: 'sparks';
-      at: THREE.Vector3;
-      color: THREE.Color;
-      born: number;
-      life: number;
-      count: number;
-    }
-  | {
-      kind: 'ripple';
-      at: THREE.Vector3;
-      color: THREE.Color | undefined;
-      born: number;
-      life: number;
-      size: number;
-    }
-  | { kind: 'ping'; at: THREE.Vector3; color: THREE.Color; born: number; life: number }
-  | { kind: 'crown'; at: THREE.Vector3; color: THREE.Color; born: number; life: number };
+    } & Placed)
+  | ({ kind: 'beam'; color: THREE.Color } & Placed)
+  | ({ kind: 'sparks'; color: THREE.Color; count: number } & Placed)
+  | ({ kind: 'ripple'; color: THREE.Color | undefined; size: number } & Placed)
+  | ({ kind: 'ping'; color: THREE.Color } & Placed)
+  | ({ kind: 'crown'; color: THREE.Color } & Placed);
 
 export const EFFECT_BUDGET = 200;
 export const WAVE_R = 1.4;
+const UP = new THREE.Vector3(0, 1, 0);
 
-const waveGeometry = new THREE.PlaneGeometry(WAVE_R * 2, WAVE_R * 2);
+const waveGeometry = new THREE.PlaneGeometry(WAVE_R * 2, WAVE_R * 2).rotateX(-Math.PI / 2);
 const beamGeometry = new THREE.CylinderGeometry(0.2, 0.15, 1, 16, 1, true);
 beamGeometry.translate(0, 0.5, 0);
-const ringGeometry = new THREE.RingGeometry(0.8, 1, 48);
+const ringGeometry = new THREE.RingGeometry(0.8, 1, 48).rotateX(-Math.PI / 2);
 const NEUTRAL = new THREE.Color(0.8, 0.85, 1);
+
+export const FLAT: Frame = { up: UP, scale: 1 };
 
 interface WaveUniforms extends Record<string, THREE.IUniform> {
   uColor: THREE.IUniform<THREE.Color>;
@@ -133,7 +134,13 @@ interface Live {
   tick(k: number, dt: number): void;
 }
 
-/** Short-lived light, kept as records and drawn by kind. */
+function stand(object: THREE.Object3D, effect: Effect): void {
+  object.position.copy(effect.at);
+  if (effect.frame.quaternion) object.quaternion.copy(effect.frame.quaternion);
+  else object.quaternion.setFromUnitVectors(UP, effect.frame.up);
+}
+
+/** Short-lived light, kept as records and drawn by kind, each standing on its own radial. */
 export class Effects {
   private live: Live[] = [];
   private lastAt = 0;
@@ -175,12 +182,13 @@ export class Effects {
   }
 
   private spawn(effect: Effect): Live {
+    const s = effect.frame.scale;
     switch (effect.kind) {
       case 'wave': {
         const { material, uniforms } = waveMaterial(effect.color, effect.mult);
         const mesh = new THREE.Mesh(waveGeometry, material);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.copy(effect.at);
+        stand(mesh, effect);
+        mesh.scale.setScalar(s);
         this.scene.add(mesh);
         const lag = 80 / effect.life;
         const reach = effect.radius;
@@ -198,19 +206,19 @@ export class Effects {
       case 'beam': {
         const { material, uniforms } = beamMaterial(effect.color, 3);
         const mesh = new THREE.Mesh(beamGeometry, material);
-        mesh.position.copy(effect.at);
-        mesh.scale.set(1, 5, 1);
+        stand(mesh, effect);
+        mesh.scale.set(s, 5 * s, s);
         this.scene.add(mesh);
         return {
           effect,
           objects: [mesh],
           tick: (k) => {
             const far = THREE.MathUtils.clamp(
-              this.camera.position.distanceTo(mesh.position) / 30,
+              this.camera.position.distanceTo(mesh.position) / (30 * s),
               1,
               2.2,
             );
-            mesh.scale.set(1 + 0.3 * k, 5 + easeOutCubic(k), 1 + 0.3 * k);
+            mesh.scale.set((1 + 0.3 * k) * s, (5 + easeOutCubic(k)) * s, (1 + 0.3 * k) * s);
             uniforms.uOpacity.value = Math.pow(1 - k, 2) * far;
           },
         };
@@ -218,15 +226,21 @@ export class Effects {
       case 'sparks': {
         const n = effect.count;
         const pos = new Float32Array(n * 3);
-        const vel: [number, number, number][] = [];
+        const vel: THREE.Vector3[] = [];
+        const q = new THREE.Quaternion().setFromUnitVectors(UP, effect.frame.up);
         for (let i = 0; i < n; i++) {
           pos[i * 3] = effect.at.x;
           pos[i * 3 + 1] = effect.at.y;
           pos[i * 3 + 2] = effect.at.z;
           const a = Math.random() * Math.PI * 2;
           const r = 0.4 + Math.random() * 1.2;
-          vel.push([Math.cos(a) * r, 2.5 + Math.random() * 2.5, Math.sin(a) * r]);
+          vel.push(
+            new THREE.Vector3(Math.cos(a) * r, 2.5 + Math.random() * 2.5, Math.sin(a) * r)
+              .applyQuaternion(q)
+              .multiplyScalar(s),
+          );
         }
+        const gravity = effect.frame.up.clone().multiplyScalar(-9 * s);
         const geometry = new THREE.BufferGeometry();
         const attribute = new THREE.BufferAttribute(pos, 3);
         geometry.setAttribute('position', attribute);
@@ -241,6 +255,7 @@ export class Effects {
           fog: false,
         });
         const points = new THREE.Points(geometry, material);
+        points.frustumCulled = false;
         this.scene.add(points);
         return {
           effect,
@@ -249,10 +264,10 @@ export class Effects {
             for (let i = 0; i < n; i++) {
               const v = vel[i];
               if (!v) continue;
-              pos[i * 3] = (pos[i * 3] ?? 0) + v[0] * dt;
-              pos[i * 3 + 1] = (pos[i * 3 + 1] ?? 0) + v[1] * dt;
-              pos[i * 3 + 2] = (pos[i * 3 + 2] ?? 0) + v[2] * dt;
-              v[1] -= 9 * dt;
+              pos[i * 3] = (pos[i * 3] ?? 0) + v.x * dt;
+              pos[i * 3 + 1] = (pos[i * 3 + 1] ?? 0) + v.y * dt;
+              pos[i * 3 + 2] = (pos[i * 3 + 2] ?? 0) + v.z * dt;
+              v.addScaledVector(gravity, dt);
             }
             attribute.needsUpdate = true;
             material.opacity = 1 - k * k;
@@ -265,9 +280,8 @@ export class Effects {
           effect.color ? 2 : 1.1,
         );
         const mesh = new THREE.Mesh(waveGeometry, material);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.copy(effect.at);
-        mesh.scale.setScalar(Math.max(1, effect.size / 1.4));
+        stand(mesh, effect);
+        mesh.scale.setScalar(Math.max(1, effect.size / 1.4) * s);
         this.scene.add(mesh);
         return {
           effect,
@@ -281,14 +295,13 @@ export class Effects {
       case 'ping': {
         const material = additive(effect.color, 3, 0.8);
         const mesh = new THREE.Mesh(ringGeometry, material);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.copy(effect.at);
+        stand(mesh, effect);
         this.scene.add(mesh);
         return {
           effect,
           objects: [mesh],
           tick: (k) => {
-            mesh.scale.setScalar(0.2 + 2.5 * easeOutCubic(k));
+            mesh.scale.setScalar((0.2 + 2.5 * easeOutCubic(k)) * s);
             material.opacity = 0.8 * (1 - k);
           },
         };
@@ -302,7 +315,7 @@ export class Effects {
           effect,
           objects: [mesh],
           tick: (k) => {
-            mesh.scale.setScalar(0.6 + k);
+            mesh.scale.setScalar((0.6 + k) * s);
             material.opacity = 0.9 * (1 - k);
           },
         };

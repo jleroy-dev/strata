@@ -1,28 +1,37 @@
 import type { BlockId, WeatherEvent } from './events.js';
 import { hueFor } from './hue.js';
+import type { RepoId } from './qualified.js';
 import type { AgentSignal } from './signal.js';
 
 export const IDLE_MS = 20_000;
 export const DONE_MS = 5_000;
 export const GONE_MS = 30 * 60_000;
 
-export type Verb = 'reading' | 'editing' | 'running' | 'waiting' | 'idle' | 'done';
+export type Verb =
+  'reading' | 'editing' | 'running' | 'thinking' | 'blocked' | 'waiting' | 'idle' | 'done';
 
 export interface Session {
   id: string;
+  repo: RepoId;
   order: number;
+  /** When this session was first seen, which is its start only when `origin` is `announced`. */
   arrivedAt: number;
   lastAt: number;
   verb: Exclude<Verb, 'idle' | 'done'>;
+  /** `announced` came from a start; `inferred` was first seen already at work. */
+  origin: SessionOrigin;
   block?: BlockId;
   leftAt?: number;
 }
+
+export type SessionOrigin = 'announced' | 'inferred';
 
 export type Sessions = ReadonlyMap<string, Session>;
 
 /** A roster row: everything the panel shows for one agent, derived at `now`. */
 export interface Agent {
   id: string;
+  repo: RepoId;
   label: string;
   hue: number;
   verb: Verb;
@@ -36,38 +45,60 @@ export function foldWeather(sessions: Sessions, event: WeatherEvent, at: number)
   const current = sessions.get(event.agentId);
   if (event.kind === 'agent.arrived') {
     if (current && current.leftAt === undefined) return sessions;
-    next.set(event.agentId, arrival(event.agentId, current?.order ?? sessions.size, at));
+    next.set(event.agentId, {
+      id: event.agentId,
+      repo: event.repo,
+      order: current?.order ?? sessions.size,
+      arrivedAt: at,
+      lastAt: at,
+      verb: 'waiting',
+      origin: 'announced',
+    });
     return next;
   }
-  if (!current && event.kind === 'agent.left') return sessions;
-  const session: Session = current
-    ? { ...current, lastAt: at }
-    : arrival(event.agentId, sessions.size, at);
   if (event.kind === 'agent.left') {
-    next.set(event.agentId, { ...session, leftAt: at });
+    if (!current) return sessions;
+    next.set(event.agentId, { ...current, lastAt: at, leftAt: at });
     return next;
   }
+  const verb = verbReported(event.kind);
+  const session: Session = current
+    ? { ...current, repo: event.repo, lastAt: at, verb }
+    : {
+        id: event.agentId,
+        repo: event.repo,
+        order: sessions.size,
+        arrivedAt: at,
+        lastAt: at,
+        verb,
+        origin: 'inferred',
+      };
   delete session.leftAt;
-  switch (event.kind) {
-    case 'agent.reading':
-    case 'agent.editing':
-      session.verb = event.kind === 'agent.reading' ? 'reading' : 'editing';
-      if (event.id === undefined) delete session.block;
-      else session.block = event.id;
-      break;
-    case 'agent.running':
-      session.verb = 'running';
-      break;
-    case 'agent.waiting':
-      session.verb = 'waiting';
-      break;
+  if (event.kind === 'agent.reading' || event.kind === 'agent.editing') {
+    if (event.id === undefined) delete session.block;
+    else session.block = event.id;
   }
   next.set(event.agentId, session);
   return next;
 }
 
-function arrival(id: string, order: number, at: number): Session {
-  return { id, order, arrivedAt: at, lastAt: at, verb: 'waiting' };
+function verbReported(
+  kind: Exclude<WeatherEvent['kind'], 'agent.arrived' | 'agent.left'>,
+): Exclude<Verb, 'idle' | 'done'> {
+  switch (kind) {
+    case 'agent.reading':
+      return 'reading';
+    case 'agent.editing':
+      return 'editing';
+    case 'agent.running':
+      return 'running';
+    case 'agent.thinking':
+      return 'thinking';
+    case 'agent.blocked':
+      return 'blocked';
+    case 'agent.waiting':
+      return 'waiting';
+  }
 }
 
 /** The verb the roster shows at `now`, or undefined once the row has dropped. */
@@ -101,6 +132,7 @@ export function roster(sessions: Sessions, now: number): Agent[] {
     const verb = verbOf(s, now) ?? 'done';
     return {
       id: s.id,
+      repo: s.repo,
       label: labelOf(s.order),
       hue,
       verb,
@@ -113,25 +145,32 @@ export function roster(sessions: Sessions, now: number): Agent[] {
 /** The fact a signal reports, or nothing when it reports none the panel draws. */
 export function eventOf(
   signal: AgentSignal,
-  known: (path: string) => boolean,
+  known: (id: BlockId) => boolean,
 ): WeatherEvent | undefined {
   const agentId = signal.session;
+  const repo = signal.repo;
   switch (signal.kind) {
     case 'start':
-      return { kind: 'agent.arrived', agentId };
+      return { kind: 'agent.arrived', agentId, repo };
+    case 'prompt':
+    case 'tool-end':
+      return { kind: 'agent.thinking', agentId, repo };
+    case 'blocked':
+      return { kind: 'agent.blocked', agentId, repo };
     case 'turn-end':
-      return { kind: 'agent.waiting', agentId };
+      return { kind: 'agent.waiting', agentId, repo };
     case 'end':
-      return { kind: 'agent.left', agentId };
+      return { kind: 'agent.left', agentId, repo };
     case 'tool': {
       const id = signal.path !== undefined && known(signal.path) ? signal.path : undefined;
       switch (signal.tool) {
         case 'read':
-          return { kind: 'agent.reading', agentId, ...(id !== undefined && { id }) };
+          return { kind: 'agent.reading', agentId, repo, ...(id !== undefined && { id }) };
         case 'edit':
-          return { kind: 'agent.editing', agentId, ...(id !== undefined && { id }) };
+          return { kind: 'agent.editing', agentId, repo, ...(id !== undefined && { id }) };
         case 'shell':
-          return { kind: 'agent.running', agentId };
+        case 'other':
+          return { kind: 'agent.running', agentId, repo };
         default:
           return undefined;
       }

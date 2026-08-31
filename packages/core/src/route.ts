@@ -1,22 +1,37 @@
 import type { BlockId } from './events.js';
-import type { Cell, Layout } from './layout.js';
+import { continentOf, type Cell, type Layout } from './layout.js';
+import { repoOfName } from './qualified.js';
 
 export const STREET_COST = 1;
 export const KERB_COST = 1.5;
 export const ALLEY_COST = 4;
 
+/** True when two blocks share a continent, so a path between them can follow the streets. */
+export function sameContinent(layout: Layout, from: BlockId, to: BlockId): boolean {
+  const a = layout.blocks.get(from);
+  const b = layout.blocks.get(to);
+  return a !== undefined && b !== undefined && repoOfName(a.country) === repoOfName(b.country);
+}
+
 /**
- * A Manhattan path on lattice corners from one block to another, never through a tower.
- * An edge along open ground costs 1, beside one tower 1.5, between two towers 4.
+ * A Manhattan path on lattice corners from one block to another on the same continent, never
+ * through a tower. An edge along open ground costs 1, beside one tower 1.5, between two
+ * towers 4. Across continents there are no streets and the path is empty.
  */
 export function route(layout: Layout, from: BlockId, to: BlockId): Cell[] {
-  const start = layout.blocks.get(from)?.cell;
-  const goal = layout.blocks.get(to)?.cell;
-  if (!start || !goal) return [];
-  const W = layout.extent.w + 1;
-  const H = layout.extent.h + 1;
+  const a = layout.blocks.get(from);
+  const b = layout.blocks.get(to);
+  if (!a || !b || !sameContinent(layout, from, to)) return [];
+  const start = a.cell;
+  const goal = b.cell;
+  const extent = continentOf(layout, a.country)?.extent ?? { w: 0, h: 0 };
+  const W = extent.w + 1;
+  const H = extent.h + 1;
+  const key = repoOfName(a.country);
   const occupied = new Set<number>();
-  for (const p of layout.blocks.values()) occupied.add(p.cell.x + p.cell.z * W);
+  for (const p of layout.blocks.values()) {
+    if (repoOfName(p.country) === key) occupied.add(p.cell.x + p.cell.z * W);
+  }
   const has = (x: number, z: number): boolean =>
     x >= 0 && z >= 0 && x < W && z < H && occupied.has(x + z * W);
   const cost = (x: number, z: number, nx: number, nz: number): number => {
@@ -34,13 +49,13 @@ export function route(layout: Layout, from: BlockId, to: BlockId): Cell[] {
     return a && b ? ALLEY_COST : a || b ? KERB_COST : STREET_COST;
   };
 
-  const key = (x: number, z: number): number => x + z * W;
+  const at = (x: number, z: number): number => x + z * W;
   const g = new Float64Array(W * H).fill(Infinity);
   const came = new Int32Array(W * H).fill(-1);
   const heap = new Heap();
-  g[key(start.x, start.z)] = 0;
-  heap.push(0, key(start.x, start.z));
-  const goalKey = key(goal.x, goal.z);
+  g[at(start.x, start.z)] = 0;
+  heap.push(0, at(start.x, start.z));
+  const goalKey = at(goal.x, goal.z);
   const steps: readonly (readonly [number, number])[] = [
     [1, 0],
     [-1, 0],
@@ -56,7 +71,7 @@ export function route(layout: Layout, from: BlockId, to: BlockId): Cell[] {
       const nx = x + dx;
       const nz = z + dz;
       if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
-      const next = key(nx, nz);
+      const next = at(nx, nz);
       const ng = (g[current] ?? Infinity) + cost(x, z, nx, nz);
       if (ng < (g[next] ?? Infinity)) {
         g[next] = ng;
@@ -65,7 +80,7 @@ export function route(layout: Layout, from: BlockId, to: BlockId): Cell[] {
       }
     }
   }
-  if (came[goalKey] === -1 && goalKey !== key(start.x, start.z)) return [];
+  if (came[goalKey] === -1 && goalKey !== at(start.x, start.z)) return [];
   const path: Cell[] = [];
   for (let k = goalKey; k !== -1; k = came[k] ?? -1) {
     const x = k % W;

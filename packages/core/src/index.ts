@@ -1,31 +1,44 @@
 export type {
   Block,
   BlockId,
-  Road,
   StrataEvent,
   TerrainChange,
   TerrainEvent,
   WeatherEvent,
 } from './events.js';
 export { PROJECT_MARKERS, placeBlocks } from './hierarchy.js';
+export {
+  CONTINENT_GAP,
+  COUNTRY_GAP,
+  COUNTRY_SKIRT,
+  DISTRICT_GAP,
+  DISTRICT_SKIRT,
+  SHORE,
+  contains,
+  skirted,
+} from './footprint.js';
 export { BINARY_EXTENSIONS, isBinary } from './binary.js';
 export { MAX_HEIGHT, SLAB_HEIGHT, heightOf } from './height.js';
 export { FAMILIES, VARIANTS_PER_FAMILY, familyOf, familyRank, type Family } from './family.js';
 export type { Extent, Rect } from './shelf.js';
 export {
-  COUNTRY_GAP,
-  DISTRICT_GAP,
+  EMPTY_LAYOUT,
   RESHELVE_ASPECT,
   SLACK,
   applyTerrain,
   capacity,
+  continentOf,
   layoutFrom,
   layoutOf,
+  layoutOfRepo,
+  mergeLayouts,
   parseLayout,
   groundOf,
+  withAtlas,
   placementDelta,
   serializeLayout,
   type Cell,
+  type ContinentPlate,
   type CountryPlate,
   type DistrictPlate,
   type Layout,
@@ -36,10 +49,67 @@ export {
   type SerializedLayout,
   type SettleReason,
 } from './layout.js';
-export { ALLEY_COST, KERB_COST, STREET_COST, route } from './route.js';
+export {
+  CLAIM_STEP,
+  MIN_PLATE,
+  claimOf,
+  landOf,
+  placeContinents,
+  type Claim,
+  type Standing,
+} from './atlas.js';
+export { ALLEY_COST, KERB_COST, STREET_COST, route, sameContinent } from './route.js';
+export {
+  WORLD_RADIUS,
+  add as addVec,
+  bendAt,
+  bendNormal,
+  chordFor,
+  dropAt,
+  cross,
+  dot,
+  frameAt,
+  length,
+  normalize,
+  project,
+  scale as scaleVec,
+  sub as subVec,
+  vec,
+  type Frame,
+  type Vec3,
+} from './sphere.js';
+export {
+  TOWERS_AT,
+  TOWERS_UNTIL,
+  TOWER_BUDGET,
+  admit,
+  tierOf,
+  type Candidate,
+  type Tier,
+} from './detail.js';
+export {
+  countryActivity,
+  repoActivity,
+  repoWarmth,
+  warmthOf,
+  type CountryActivity,
+} from './activity.js';
 export { foldersMoved, needsHashes, reconcile, type Entry, type Listing } from './terrain.js';
-export type { HookState } from './events.js';
+export type { HookState, HookStateEvent, Mount } from './events.js';
 export type { AgentSignal } from './signal.js';
+export {
+  SEPARATOR,
+  blockId,
+  pathOf,
+  qualify,
+  repoId,
+  repoOf,
+  repoPath,
+  withoutRepo,
+  repoOfName,
+  type RepoId,
+  type RepoPath,
+} from './qualified.js';
 export { WEATHER_HUES, hashOf, hueFor } from './hue.js';
 export {
   DONE_MS,
@@ -52,6 +122,7 @@ export {
   verbOf,
   type Agent,
   type Session,
+  type SessionOrigin,
   type Sessions,
   type Verb,
 } from './weather.js';
@@ -84,7 +155,17 @@ export {
   type Motion,
   type World,
 } from './motion.js';
-export { INITIAL_UI, reduce, type Intent, type Mode, type Ui } from './ui.js';
+export {
+  INITIAL_UI,
+  hookStateOf,
+  reduce,
+  rosterStateOf,
+  type Intent,
+  type Mode,
+  type RosterInput,
+  type RosterState,
+  type Ui,
+} from './ui.js';
 export {
   History,
   KEYFRAME_EVERY,
@@ -93,13 +174,3 @@ export {
   foldTerrain,
   type Moment,
 } from './history.js';
-export {
-  RoadIndex,
-  languageOf,
-  parseRoadKey,
-  registerLanguage,
-  roadKey,
-  type Language,
-  type ResolveContext,
-} from './roads.js';
-export { typescript } from './languages/typescript.js';

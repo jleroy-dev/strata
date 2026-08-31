@@ -3,21 +3,25 @@ import {
   groundOf,
   layoutOf,
   placeBlocks,
+  pathOf,
   placementDelta,
   reconcile,
   type Block,
+  type BlockId,
   type Layout,
   type Listing,
+  type RepoId,
+  type RepoPath,
   type StrataEvent,
 } from '@strata/core';
 import { hashFiles, listFiles } from './git.js';
-import { openRoads } from './roads.js';
+import type { Mount } from '@strata/core';
 import { CAP_MS, later, watchRoot, type Watcher } from './watch.js';
 
 export interface Terrain {
   layout(): Layout;
-  has(path: string): boolean;
-  paths(): string[];
+  has(id: BlockId): boolean;
+  paths(): RepoPath[];
   onSettingsTouched(fn: () => void): void;
   close(): void;
 }
@@ -30,22 +34,22 @@ const SETTINGS = /^\.claude\/settings(\.local)?\.json$/;
  * listed twice, so an editor's temporary file never rises.
  */
 export async function openTerrain(
-  root: string,
+  mount: Mount,
   broadcast: (events: StrataEvent[]) => void,
 ): Promise<Terrain> {
+  const root = mount.root;
   let listing = await listFiles(root, new Map(), new Set());
   const untracked = [...listing].filter(([, e]) => e.sha === undefined).map(([id]) => id);
   for (const [id, sha] of await hashFiles(root, untracked)) {
     const entry = listing.get(id);
     if (entry && sha) entry.sha = sha;
   }
-  let layout: Layout = layoutOf(toBlocks(listing));
+  let layout: Layout = layoutOf(toBlocks(mount.id, listing));
   let seen = new Set(listing.keys());
   let running = false;
   let pending = new Set<string>();
   let again = false;
   const settingsListeners: (() => void)[] = [];
-  const roads = openRoads(root);
 
   const tick = async (touched: Set<string>): Promise<void> => {
     if ([...touched].some((path) => SETTINGS.test(path))) {
@@ -72,13 +76,15 @@ export async function openTerrain(
         const entry = fresh.get(id);
         if (entry && sha) entry.sha = sha;
       }
-      const all = reconcile(listing, fresh, hashes);
+      const all = reconcile(mount.id, listing, fresh, hashes);
       const deferred = new Set(
         all
-          .filter((c) => c.kind === 'block.added' && unseen.has(c.block.id))
-          .map((c) => (c.kind === 'block.added' ? c.block.id : '')),
+          .filter((c) => c.kind === 'block.added' && unseen.has(pathOf(c.block.id)))
+          .flatMap((c) => (c.kind === 'block.added' ? [pathOf(c.block.id)] : [])),
       );
-      const changes = all.filter((c) => !(c.kind === 'block.added' && deferred.has(c.block.id)));
+      const changes = all.filter(
+        (c) => !(c.kind === 'block.added' && deferred.has(pathOf(c.block.id))),
+      );
       for (const id of deferred) fresh.delete(id);
       if (deferred.size > 0) {
         for (const path of batch) pending.add(path);
@@ -100,6 +106,7 @@ export async function openTerrain(
         if (result.repack) {
           events.push({
             kind: 'layout.repacked',
+            repo: mount.id,
             ...result.repack,
             blocks: placementDelta(before, layout),
             ...groundOf(layout),
@@ -108,7 +115,6 @@ export async function openTerrain(
         }
       }
       broadcast(events);
-      broadcast(await roads.apply(changes, listing, at));
     } finally {
       running = false;
       if (again) {
@@ -125,13 +131,9 @@ export async function openTerrain(
       );
     });
   });
-  void roads.build(listing).then((events) => {
-    if (events.length > 0) broadcast(events);
-  });
-
   return {
     layout: () => layout,
-    has: (path) => listing.has(path),
+    has: (id) => listing.has(pathOf(id)),
     paths: () => [...listing.keys()],
     onSettingsTouched: (fn) => {
       settingsListeners.push(fn);
@@ -142,6 +144,10 @@ export async function openTerrain(
   };
 }
 
-function toBlocks(listing: Listing): Block[] {
-  return placeBlocks([...listing.keys()], new Map([...listing].map(([id, e]) => [id, e.size])));
+function toBlocks(repo: RepoId, listing: Listing): Block[] {
+  return placeBlocks(
+    repo,
+    [...listing.keys()],
+    new Map([...listing].map(([id, e]) => [id, e.size])),
+  );
 }

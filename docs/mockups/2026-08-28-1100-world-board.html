@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · world board</title>
+    <style id="css"></style>
+  </head>
+  <body>
+    <h1>One world · how much curvature, and where a repo stands on it</h1>
+    <p class="lead">
+      Every card draws the same thing: all 60 git repos in <code>~/QuartzX</code>, laid out by
+      core's own <code>placeBlocks</code> and <code>layoutOf</code> as they are today, district
+      rects and tower cells included, then shelved into one ground. A continent is a repo, a city is
+      a project, a district is a folder, a block is a tower. Nothing is invented and nothing is
+      sampled. The only variable in cards A to D is the radius of the single sphere the flat lattice
+      is bent over; card E changes where continents stand; card F lights it.
+      <b>Drag any card to orbit.</b> Only card F moves on its own.
+    </p>
+    <table class="data" id="facts"></table>
+    <div class="board" id="board"></div>
+    <script src="data/world-regions.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import * as L from './data/world-lib.js';
+      document.getElementById('css').textContent = L.BOARD_CSS;
+
+      const W = 520;
+      const H = 480;
+      const REGIONS = window.REGIONS;
+      const world = L.buildWorld(REGIONS);
+      const hashWorld = L.buildHashWorld(REGIONS, { pitch: 64, cols: 26 });
+      const SPAN = Math.max(world.extent.w, world.extent.h);
+      const WEB2 = REGIONS.find((r) => r.n === 'QuartzX.Web2');
+
+      const cities = REGIONS.reduce((a, r) => a + r.cities.length, 0);
+      const districts = REGIONS.reduce(
+        (a, r) => a + r.cities.reduce((b, c) => b + c.d.length, 0),
+        0,
+      );
+      const towers = REGIONS.reduce((a, r) => a + r.cities.reduce((b, c) => b + c.t.length, 0), 0);
+      const drop = (R, d) => R * (1 - Math.cos(d / R));
+      /** Cells per pixel when a span of cells is fitted across a panel of that many pixels. */
+      const pxPerCell = (span, panelPx) => (panelPx * 0.9) / span;
+
+      document.getElementById('facts').innerHTML = `
+        <tr><th>repos</th><th>files</th><th>projects</th><th>folders</th><th>world</th>
+            <th>Web2 alone</th><th>px per cell, 460 px panel</th><th>drop at the world's rim, R = 3500</th></tr>
+        <tr><td>${REGIONS.length}</td><td>${towers.toLocaleString()}</td><td>${cities}</td>
+            <td>${districts.toLocaleString()}</td>
+            <td>${world.extent.w} × ${world.extent.h} cells</td>
+            <td>${WEB2.w} × ${WEB2.h} cells</td>
+            <td>world ${pxPerCell(SPAN, 460).toFixed(2)} · Web2 alone ${pxPerCell(Math.max(WEB2.w, WEB2.h), 460).toFixed(2)}</td>
+            <td>${drop(3500, SPAN / 2).toFixed(0)} cells, about ${(drop(3500, SPAN / 2) / 7).toFixed(1)} tower heights</td></tr>`;
+
+      const board = document.getElementById('board');
+      const loops = [];
+
+      /** Three agents, on a plausible day: a web app, its backend, and two libraries. */
+      const AGENTS = [175, 305, 45];
+      const LIVE = new Map([
+        ['QuartzX.Web2', { hue: 175, trace: 1.0, present: true }],
+        ['QuartzX.CredX', { hue: 305, trace: 0.85, present: true }],
+        ['QuartzX.ID', { hue: 45, trace: 0.6, present: true }],
+        ['QuartzX.Lookups', { hue: 175, trace: 0.35, present: false }],
+        ['QuartzX.Web.GOV', { hue: 305, trace: 0.2, present: false }],
+        ['QuartzX.Insights', { hue: 45, trace: 0.08, present: false }],
+      ]);
+      /** Which project inside a live repo carries the trace; the rest of the repo is only awake. */
+      const litCity = new Map();
+      for (const [name] of LIVE) {
+        const r = REGIONS.find((x) => x.n === name);
+        if (!r) continue;
+        litCity.set(
+          name,
+          r.cities
+            .slice()
+            .sort((a, b) => b.t.length - a.t.length)
+            .slice(0, Math.max(1, Math.round(r.cities.length * 0.12)))
+            .map((c) => c.n),
+        );
+      }
+      const stateOf = (continent, city) => {
+        const live = LIVE.get(continent);
+        if (!live) return { lit: 0, dormant: true };
+        const on = litCity.get(continent)?.includes(city);
+        return on
+          ? { lit: live.trace, hue: live.hue, dormant: false }
+          : { lit: 0, dormant: false, near: live.trace };
+      };
+
+      function scene(cardEl, w, opts = {}) {
+        const s = L.makeStage(W, H, { fog: opts.fog });
+        cardEl.appendChild(s.stage);
+        const controls = new OrbitControls(s.camera, s.renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.02;
+        controls.minDistance = 8;
+        controls.maxDistance = 4000;
+        return { ...s, controls };
+      }
+
+      /** Builds one card's world and returns a renderer you can call. */
+      function build(cardEl, { R, model = world, lit = false, opts = {} }) {
+        const span0 = Math.max(model.extent.w, model.extent.h);
+        const s = scene(cardEl, model, { fog: 0.2 / span0, ...opts });
+        const bend = L.bender(model, R);
+        const body = L.bodyTier(model, bend);
+        s.sc.add(body);
+        s.sc.add(L.coastlines(model, bend));
+        const reach = Number.isFinite(R) ? Math.min(2400, R * 0.62) : 2400;
+        s.sc.add(L.ocean(bend, reach, Number.isFinite(R) ? 80 : 8, 96));
+        L.paintBody(body, lit ? stateOf : () => ({ lit: 0, dormant: false }));
+        const span = Math.max(model.extent.w, model.extent.h);
+        const distance = L.frameRect(s.camera, s.controls, bend, {
+          x: 0,
+          z: 0,
+          w: model.extent.w,
+          h: model.extent.h,
+        });
+        let dirty = true;
+        s.controls.addEventListener('change', () => (dirty = true));
+        const render = () => {
+          s.controls.update();
+          s.renderer.render(s.sc, s.camera);
+        };
+        loops.push(() => {
+          if (!dirty) return;
+          dirty = false;
+          render();
+        });
+        return { s, bend, body, distance, span, render, dirty: () => (dirty = true) };
+      }
+
+      // ---------------------------------------------------------------- card A
+      {
+        const c = L.card(
+          board,
+          'A · Flat, no curvature',
+          'today',
+          'cur',
+          `The ground the panel draws now, with every repo on it: <b>${world.extent.w} × ${world.extent.h} cells</b> for
+           all sixty, against ${WEB2.w} × ${WEB2.h} for Web2 alone. The whole portfolio costs
+           <b>2.1× the largest repo's own span</b> and stops growing there: three repos is 455 cells,
+           fifteen is 704, sixty is ${SPAN}. That number is the reason the sphere was never needed;
+           the shelf already compresses a 2,056 : 1 spread in files into 2 : 1 of world.
+           What it lacks is any sense that this is a surface: the ground runs to the frame edge
+           and stops, and the eye reads an infinite plane cropped by a rectangle.`,
+        );
+        const b = build(c.el, { R: Infinity });
+        b.s.tier.textContent = `flat · ${SPAN} cells across`;
+        c.el.appendChild(c.notes);
+      }
+
+      // ---------------------------------------------------------------- card B
+      {
+        const R = 7000;
+        const c = L.card(
+          board,
+          'B · One sphere, R = 7000 cells',
+          'too little',
+          'cur',
+          `The lattice is bent over a single sphere tangent at the world's centre. The rim of the
+           world drops <b>${drop(R, SPAN / 2).toFixed(0)} cells</b>, about
+           ${(drop(R, SPAN / 2) / 7).toFixed(1)} tower heights, and the horizon sits
+           ${Math.sqrt(2 * R * 600).toFixed(0)} cells out. Honest, but at this radius the bend is
+           inside the noise of the terrain's own heights: you have to be told it is there. It also
+           buys nothing at Web2's own scale, where the drop is
+           ${drop(R, WEB2.w / 2).toFixed(1)} cells.`,
+        );
+        const b = build(c.el, { R });
+        b.s.tier.textContent = `R = ${R} cells · rim drops ${drop(R, SPAN / 2).toFixed(0)}`;
+        c.el.appendChild(c.notes);
+      }
+
+      // ---------------------------------------------------------------- card C
+      {
+        const R = 3500;
+        const c = L.card(
+          board,
+          'C · One sphere, R = 3500 cells',
+          'recommended',
+          'rec',
+          `<b>The recommendation.</b> The rim drops ${drop(R, SPAN / 2).toFixed(0)} cells, about
+           ${(drop(R, SPAN / 2) / 7).toFixed(1)} tower heights, so the ground reads as a surface
+           without anything looking like it is sliding off. The radius is a <b>constant in cells</b>,
+           never a function of what is mounted, and that constant does the work for free at every
+           scale: Web2 alone drops ${drop(R, WEB2.w / 2).toFixed(1)} cells over its own width, and
+           one district, twenty cells across, drops ${drop(R, 10).toFixed(3)} of a cell, which is to
+           say Follow is flat and always will be. The tangential squeeze across the whole world is
+           <b>sin ρ / ρ = ${((Math.sin(SPAN / 2 / R) / (SPAN / 2 / R)) * 100).toFixed(2)}%</b>, two
+           parts in a thousand, so the layout law is untouched: this is the same
+           azimuthal-equidistant projection <code>sphere.ts</code> already has, at a radius where
+           it stops distorting. The horizon sits ${Math.sqrt(2 * R * 600).toFixed(0)} cells out and
+           the fog meets it.`,
+        );
+        const b = build(c.el, { R });
+        b.s.tier.textContent = `R = ${R} cells · rim drops ${drop(R, SPAN / 2).toFixed(0)}`;
+        c.el.appendChild(c.notes);
+      }
+
+      // ---------------------------------------------------------------- card D
+      {
+        const R = 1750;
+        const c = L.card(
+          board,
+          'D · One sphere, R = 1750 cells',
+          'refused',
+          'no',
+          `The rim drops <b>${drop(R, SPAN / 2).toFixed(0)} cells</b>, six tower heights, and the
+           far continents tip away far enough that their districts foreshorten into stripes. Worse,
+           the curvature has become visible at a single repo's scale
+           (${drop(R, WEB2.w / 2).toFixed(0)} cells across Web2), which puts a bend inside the one
+           thing the layout law promises is stable. Curvature is meant to say "this is a surface",
+           not "this is a small planet"; past this radius it starts saying the second thing, which
+           is the direction we just left.`,
+        );
+        const b = build(c.el, { R });
+        b.s.tier.textContent = `R = ${R} cells · rim drops ${drop(R, SPAN / 2).toFixed(0)}`;
+        c.el.appendChild(c.notes);
+      }
+
+      // ---------------------------------------------------------------- card E
+      {
+        const R = 3500;
+        const span = Math.max(hashWorld.extent.w, hashWorld.extent.h);
+        const fill = (
+          (REGIONS.reduce((a, r) => a + r.w * r.h, 0) / (hashWorld.extent.w * hashWorld.extent.h)) *
+          100
+        ).toFixed(0);
+        const c = L.card(
+          board,
+          'E · Fixed slots, addressed by name hash',
+          'refused',
+          'no',
+          `What "a place derived from the name alone" actually costs. Every continent claims a
+           square of 64-cell slots at the address its name hashes to, so mounting a repo genuinely
+           never moves another and the sky is fixed forever. The bill is on screen:
+           <b>${hashWorld.extent.w} × ${hashWorld.extent.h} cells</b> against ${SPAN} for the shelf,
+           <b>${fill}% of it land</b>, and the rest ocean that Overview has to frame anyway. It is
+           also not even exact: sixty names in a 26 × 26 slot grid collide, and a collision is
+           resolved by probing, which means mounting can still move somebody. Cards A to D and F
+           use the shelf instead: <b>largest first, gap ${L.CONTINENT_GAP}, minimum plate
+           ${L.MIN_PLATE} × ${L.MIN_PLATE}</b>, sticky once placed, so a mounted repo keeps its
+           ground for as long as it stays mounted and a new one takes a hole or joins the last row.
+           You lose "position is a pure function of the name" and keep everything it was for.`,
+        );
+        const b = build(c.el, { R, model: hashWorld });
+        b.s.tier.textContent = `hash slots · ${span} cells across · ${fill}% land`;
+        c.el.appendChild(c.notes);
+      }
+
+      // ---------------------------------------------------------------- card F
+      {
+        const R = 3500;
+        const c = L.card(
+          board,
+          'F · Live, resting and dormant, and the descent',
+          'recommended',
+          'rec',
+          `Card C's world with a plausible day on it: three agents across six repos, the other
+           fifty-four dormant. A dormant repo cannot recede any more, so it does what a repo does
+           at rest: it <b>keeps its ground and its hue and loses its contrast</b>, which reads as
+           cold land rather than as an absence. Nothing is removed, nothing is a starfield, and the
+           map is still a map. The camera runs Overview → one continent → one district on a loop so
+           you can see the tiers hand over: at Overview a tower is
+           ${pxPerCell(SPAN, 460).toFixed(2)} px and the ground is district patches; towers are
+           admitted per project at 3 px per cell under the same 6,000 budget
+           <code>detail.ts</code> already applies. The far-side tier is gone with the far side.`,
+        );
+        const b = build(c.el, { R, lit: true });
+        const bend = b.bend;
+        const web2 = world.continents.find((x) => x.name === 'QuartzX.Web2');
+        const big = web2.cities.slice().sort((a, b2) => b2.t.length - a.t.length)[0];
+        const towerMesh = L.towerTier(world, bend, (n) => n === 'QuartzX.Web2', 6000);
+        towerMesh.visible = false;
+        b.s.sc.add(towerMesh);
+
+        const shots = [
+          {
+            rect: { x: 0, z: 0, w: world.extent.w, h: world.extent.h },
+            tier: 'overview · districts',
+          },
+          {
+            rect: { x: web2.x, z: web2.z, w: web2.w, h: web2.h },
+            tier: 'continent · QuartzX.Web2',
+          },
+          {
+            rect: {
+              x: web2.ox + big.x,
+              z: web2.oz + big.z,
+              w: big.w,
+              h: big.h,
+            },
+            tier: `city · ${big.n} · towers`,
+          },
+        ];
+        let i = 0;
+        let at = performance.now();
+        L.frameRect(b.s.camera, b.s.controls, bend, shots[0].rect);
+        const target = { pos: b.s.camera.position.clone(), look: b.s.controls.target.clone() };
+        loops.pop();
+        loops.push(() => {
+          const now = performance.now();
+          if (now - at > 3600) {
+            at = now;
+            i = (i + 1) % shots.length;
+            const keep = { pos: b.s.camera.position.clone(), look: b.s.controls.target.clone() };
+            L.frameRect(b.s.camera, b.s.controls, bend, shots[i].rect);
+            target.pos.copy(b.s.camera.position);
+            target.look.copy(b.s.controls.target);
+            b.s.camera.position.copy(keep.pos);
+            b.s.controls.target.copy(keep.look);
+            b.s.tier.textContent = shots[i].tier;
+          }
+          b.s.camera.position.lerp(target.pos, 0.055);
+          b.s.controls.target.lerp(target.look, 0.055);
+          b.s.camera.lookAt(b.s.controls.target);
+          const ppc =
+            H /
+            (2 * Math.tan((b.s.camera.fov * Math.PI) / 360)) /
+            b.s.camera.position.distanceTo(b.s.controls.target);
+          towerMesh.visible = ppc >= 3;
+          b.s.ring.innerHTML = `<b>${ppc.toFixed(1)}</b> px per cell`;
+          b.s.renderer.render(b.s.sc, b.s.camera);
+        });
+        b.s.tier.textContent = shots[0].tier;
+        c.el.appendChild(c.notes);
+      }
+
+      (function run() {
+        for (const f of loops) f();
+        requestAnimationFrame(run);
+      })();
+    </script>
+  </body>
+</html>

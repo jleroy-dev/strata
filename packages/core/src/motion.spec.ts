@@ -12,15 +12,18 @@ import {
   type World,
 } from './motion.js';
 import { foldWeather, type Session, type Sessions } from './weather.js';
+import { REPO, at } from './fixtures/ids.js';
+import { pathOf, type BlockId } from './qualified.js';
 
 const files = (): Block[] =>
   placeBlocks(
+    REPO,
     FIXTURE_FILES.map(([id]) => id),
     new Map(FIXTURE_FILES),
   );
-const block = (id: string, size = 1000): Block =>
-  placeBlocks([id, ...FIXTURE_FILES.map(([f]) => f)], new Map([[id, size]])).find(
-    (b) => b.id === id,
+const block = (path: string, size = 1000): Block =>
+  placeBlocks(REPO, [path, ...FIXTURE_FILES.map(([f]) => f)], new Map([[path, size]])).find(
+    (b) => b.id === at(path),
   )!;
 const base: World = { layout: layoutOf(files()), sessions: new Map() };
 const kinds = (ms: ReturnType<typeof motions>): string[] => ms.map((m) => m.kind);
@@ -41,7 +44,7 @@ describe('motions', () => {
     ]);
     const gone = {
       ...base,
-      layout: applyTerrain(base.layout, { kind: 'block.removed', id: 'docs/NOTES.md' }).layout,
+      layout: applyTerrain(base.layout, { kind: 'block.removed', id: at('docs/NOTES.md') }).layout,
     };
     expect(kinds(motions(base, gone))).toEqual(['sink']);
   });
@@ -52,37 +55,37 @@ describe('motions', () => {
       ...base,
       layout: applyTerrain(base.layout, {
         kind: 'block.moved',
-        from: 'docs/NOTES.md',
+        from: at('docs/NOTES.md'),
         block: renamed,
       }).layout,
     };
-    expect(motions(base, inPlace, new Map([[renamed.id, 'docs/NOTES.md']]))).toEqual([
-      { kind: 'blink', id: renamed.id, from: 'docs/NOTES.md' },
+    expect(motions(base, inPlace, new Map([[renamed.id, at('docs/NOTES.md')]]))).toEqual([
+      { kind: 'blink', id: renamed.id, from: at('docs/NOTES.md') },
     ]);
     const moved = block('apps/api/src/NOTES.md', 6400);
     const across = {
       ...base,
       layout: applyTerrain(base.layout, {
         kind: 'block.moved',
-        from: 'docs/NOTES.md',
+        from: at('docs/NOTES.md'),
         block: moved,
       }).layout,
     };
-    const ms = motions(base, across, new Map([[moved.id, 'docs/NOTES.md']]));
+    const ms = motions(base, across, new Map([[moved.id, at('docs/NOTES.md')]]));
     expect(
-      ms.some((m) => m.kind === 'flight' && m.from === 'docs/NOTES.md' && m.id === moved.id),
+      ms.some((m) => m.kind === 'flight' && m.from === at('docs/NOTES.md') && m.id === moved.id),
     ).toBe(true);
     expect(kinds(ms)).not.toContain('sink');
   });
 
   it('flies a whole district as one platform', () => {
     const ids = [...base.layout.blocks]
-      .filter(([, p]) => p.country === 'libs/shared/models' && p.district === 'src/lib')
+      .filter(([, p]) => p.country === at('libs/shared/models') && p.district === 'src/lib')
       .map(([id]) => id);
     let layout = base.layout;
-    const renames = new Map<string, string>();
+    const renames = new Map<BlockId, BlockId>();
     for (const id of ids) {
-      const to = block(id.replace('src/lib/', 'src/model/'));
+      const to = block(pathOf(id).replace('src/lib/', 'src/model/'));
       layout = applyTerrain(layout, { kind: 'block.moved', from: id, block: to }).layout;
       renames.set(to.id, id);
     }
@@ -90,7 +93,7 @@ describe('motions', () => {
     const platform = ms.find((m) => m.kind === 'platform');
     expect(platform).toMatchObject({
       kind: 'platform',
-      country: 'libs/shared/models',
+      country: at('libs/shared/models'),
       district: 'src/model',
     });
     expect(kinds(ms).filter((k) => k === 'flight')).toEqual([]);
@@ -109,23 +112,27 @@ describe('motions', () => {
 
   it('follows sessions: arrive with a trip, trips between blocks, depart', () => {
     let sessions: Sessions = new Map();
-    sessions = foldWeather(sessions, { kind: 'agent.arrived', agentId: 'a' }, 1);
+    sessions = foldWeather(sessions, { kind: 'agent.arrived', repo: REPO, agentId: 'a' }, 1);
     const arrived = { ...base, sessions };
     expect(motions(base, arrived)).toEqual([{ kind: 'arrive', agentId: 'a' }]);
     sessions = foldWeather(
       sessions,
-      { kind: 'agent.reading', agentId: 'a', id: 'docs/NOTES.md' },
+      { kind: 'agent.reading', repo: REPO, agentId: 'a', id: at('docs/NOTES.md') },
       2,
     );
     const reading = { ...base, sessions };
     expect(motions(arrived, reading)).toEqual([
-      { kind: 'trip', agentId: 'a', to: 'docs/NOTES.md' },
+      { kind: 'trip', agentId: 'a', to: at('docs/NOTES.md') },
     ]);
-    sessions = foldWeather(sessions, { kind: 'agent.editing', agentId: 'a', id: 'README.md' }, 3);
+    sessions = foldWeather(
+      sessions,
+      { kind: 'agent.editing', repo: REPO, agentId: 'a', id: at('README.md') },
+      3,
+    );
     expect(motions(reading, { ...base, sessions })).toEqual([
-      { kind: 'trip', agentId: 'a', from: 'docs/NOTES.md', to: 'README.md' },
+      { kind: 'trip', agentId: 'a', from: at('docs/NOTES.md'), to: at('README.md') },
     ]);
-    const left = foldWeather(sessions, { kind: 'agent.left', agentId: 'a' }, 4);
+    const left = foldWeather(sessions, { kind: 'agent.left', repo: REPO, agentId: 'a' }, 4);
     expect(motions({ ...base, sessions }, { ...base, sessions: left })).toEqual([
       { kind: 'depart', agentId: 'a' },
     ]);
@@ -134,8 +141,8 @@ describe('motions', () => {
 
 describe('motions on a folder move', () => {
   it('flies a one-file folder as a platform when the folder fact is present', () => {
-    const from = 'docs/mockups/board.html';
-    const to = block('docs/boards/board.html', 18000);
+    const from = at('docs/mockups/board.html');
+    const to = block('apps/api/mockups/board.html', 18000);
     const layout = applyTerrain(base.layout, { kind: 'block.moved', from, block: to }).layout;
     const renames = new Map([[to.id, from]]);
     expect(motions(base, { ...base, layout }, renames).map((m) => m.kind)).toContain('flight');
@@ -143,31 +150,49 @@ describe('motions on a folder move', () => {
       base,
       { ...base, layout },
       renames,
-      new Map([['docs/mockups', 'docs/boards']]),
+      new Map([[at('docs/mockups'), at('apps/api/mockups')]]),
     );
     const platform = ms.find((m) => m.kind === 'platform');
     expect(platform).toMatchObject({
       kind: 'platform',
-      folder: 'docs/mockups',
-      district: 'boards',
+      folder: at('docs/mockups'),
+      district: 'mockups',
     });
     expect(ms.map((m) => m.kind)).not.toContain('flight');
+  });
+
+  it('blinks a folder renamed in place instead of flying it nowhere', () => {
+    const from = at('docs/mockups/board.html');
+    const to = block('docs/boards/board.html', 18000);
+    const layout = applyTerrain(base.layout, { kind: 'block.moved', from, block: to }).layout;
+    const before = base.layout.blocks.get(from);
+    const after = layout.blocks.get(to.id);
+    expect(after?.cell).toEqual(before?.cell);
+    const ms = motions(
+      base,
+      { ...base, layout },
+      new Map([[to.id, from]]),
+      new Map([[at('docs/mockups'), at('docs/boards')]]),
+    );
+    expect(kinds(ms)).not.toContain('flight');
+    expect(kinds(ms)).not.toContain('platform');
+    expect(ms).toContainEqual({ kind: 'blink', id: to.id, from });
   });
 });
 
 describe('motions on a rename', () => {
   it('does not send the agent on a trip when its block is renamed', () => {
     let sessions: Sessions = new Map();
-    sessions = foldWeather(sessions, { kind: 'agent.arrived', agentId: 'a' }, 1);
+    sessions = foldWeather(sessions, { kind: 'agent.arrived', repo: REPO, agentId: 'a' }, 1);
     sessions = foldWeather(
       sessions,
-      { kind: 'agent.editing', agentId: 'a', id: 'docs/NOTES.md' },
+      { kind: 'agent.editing', repo: REPO, agentId: 'a', id: at('docs/NOTES.md') },
       2,
     );
     const renamed = block('docs/NOTES-2.md', 6400);
     const layout = applyTerrain(base.layout, {
       kind: 'block.moved',
-      from: 'docs/NOTES.md',
+      from: at('docs/NOTES.md'),
       block: renamed,
     }).layout;
     const after = new Map<string, Session>(sessions);
@@ -175,7 +200,7 @@ describe('motions on a rename', () => {
     const ms = motions(
       { layout: base.layout, sessions },
       { layout, sessions: after },
-      new Map([[renamed.id, 'docs/NOTES.md']]),
+      new Map([[renamed.id, at('docs/NOTES.md')]]),
     );
     expect(ms.map((m) => m.kind)).toEqual(['blink']);
   });

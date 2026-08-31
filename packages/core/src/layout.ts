@@ -3,21 +3,22 @@ import { isBinary } from './binary.js';
 import type { Block, BlockId, TerrainChange } from './events.js';
 import { familyOf, familyRank, type Family } from './family.js';
 import { heightOf } from './height.js';
-import { apart, shelf, shelfAt, type Extent, type Rect } from './shelf.js';
+import { repoOf, repoOfName, type RepoId } from './qualified.js';
+import { placeContinents, type Claim, type Standing } from './atlas.js';
+import { COUNTRY_GAP, DISTRICT_GAP } from './footprint.js';
+import { apart, shelf, shelfAt, type Cell, type Extent, type Rect } from './shelf.js';
 
-export const DISTRICT_GAP = 1;
-export const COUNTRY_GAP = 3;
+export { COUNTRY_GAP, DISTRICT_GAP };
+
 export const SLACK = 1.2;
 export const RESHELVE_ASPECT = 1.5;
 
 /** Why a country's platforms re-shelve; the one place that decides it. */
 export type SettleReason = 'district-arrived' | 'district-left' | 'no-room';
 
-export interface Cell {
-  x: number;
-  z: number;
-}
+export type { Cell } from './shelf.js';
 
+/** A cell is local to the continent its country sits on. */
 export interface Placement {
   cell: Cell;
   height: number;
@@ -38,23 +39,38 @@ export interface CountryPlate extends Rect {
   variant: number;
 }
 
+/**
+ * One repo's ground. `extent` is how far its countries reach and only ever grows; `land` is
+ * the ground it shows, `claim` the ground it holds on the world and `at` the world cell its
+ * own cell zero sits on, the last two changing only when the extent crosses a step.
+ */
+export interface ContinentPlate {
+  repo: RepoId;
+  extent: Extent;
+  land: Rect;
+  claim: Extent;
+  at: Cell;
+}
+
 export interface Layout {
   blocks: ReadonlyMap<BlockId, Placement>;
   districts: readonly DistrictPlate[];
   countries: readonly CountryPlate[];
-  extent: Extent;
+  continents: readonly ContinentPlate[];
+  world: Extent;
 }
 
 export interface SerializedLayout {
   blocks: [BlockId, Placement][];
   districts: DistrictPlate[];
   countries: CountryPlate[];
-  extent: Extent;
+  continents: ContinentPlate[];
+  world: Extent;
 }
 
 /**
  * `district`: one platform changed size, nothing on it moved. `country`: that country's
- * platforms moved. `map`: plates moved.
+ * platforms moved. `map`: plates on the continent moved.
  */
 export type RepackScope = 'district' | 'country' | 'map';
 
@@ -91,13 +107,52 @@ interface Country extends Rect {
   districts: District[];
 }
 
-interface Model {
+interface Continent {
+  repo: RepoId;
   countries: Country[];
   extent: Extent;
 }
 
+interface Model {
+  continents: Continent[];
+}
+
+export const EMPTY_LAYOUT: Layout = {
+  blocks: new Map(),
+  districts: [],
+  countries: [],
+  continents: [],
+  world: { w: 0, h: 0 },
+};
+
 export function capacity(count: number): number {
   return Math.max(2, Math.ceil(count * SLACK) + 1);
+}
+
+/** Re-stands every continent from its extent, the one place the world's shape is decided. */
+export function withAtlas(layout: Layout): Layout {
+  const claims: Claim[] = layout.continents.map((c) => ({ repo: c.repo, extent: c.extent }));
+  const { standings, world } = placeContinents(claims);
+  const byRepo = new Map(claims.map((c) => [c.repo, c.extent]));
+  return { ...layout, continents: standingsToPlates(standings, byRepo), world };
+}
+
+function standingsToPlates(
+  standings: readonly Standing[],
+  extents: ReadonlyMap<RepoId, Extent>,
+): ContinentPlate[] {
+  return standings.map((s) => ({
+    repo: s.repo,
+    extent: extents.get(s.repo) ?? { w: 0, h: 0 },
+    land: s.land,
+    claim: s.claim,
+    at: s.at,
+  }));
+}
+
+export function continentOf(layout: Layout, country: string): ContinentPlate | undefined {
+  const repo = repoOfName(country);
+  return layout.continents.find((c) => c.repo === repo);
 }
 
 function gridFor(count: number): Extent {
@@ -142,15 +197,26 @@ export function layoutOf(blocks: readonly Block[]): Layout {
     const extent = shelf(districts, DISTRICT_GAP);
     return { name, family: familyOf(name), variant: NO_VARIANT, x: 0, z: 0, ...extent, districts };
   });
-  countries.sort(
-    (a, b) =>
-      familyRank(a.family) - familyRank(b.family) ||
-      b.w * b.h - a.w * a.h ||
-      compare(a.name, b.name),
-  );
-  const extent = shelf(countries, COUNTRY_GAP);
-  assignVariants(countries, COUNTRY_GAP);
-  return toLayout({ countries, extent });
+
+  const byRepo = new Map<RepoId, Country[]>();
+  for (const c of countries) {
+    const repo = repoOfName(c.name);
+    byRepo.set(repo, [...(byRepo.get(repo) ?? []), c]);
+  }
+  const continents: Continent[] = [];
+  for (const [repo, list] of byRepo) {
+    list.sort(
+      (a, b) =>
+        familyRank(a.family) - familyRank(b.family) ||
+        b.w * b.h - a.w * a.h ||
+        compare(a.name, b.name),
+    );
+    const extent = shelf(list, COUNTRY_GAP);
+    assignVariants(list, COUNTRY_GAP);
+    continents.push({ repo, countries: list, extent });
+  }
+  sortContinents(continents);
+  return toLayout({ continents });
 }
 
 /** Applies one structural change, keeping every cell that still fits. */
@@ -220,12 +286,50 @@ export function layoutFrom(blocks: readonly Block[], previous: Layout): Layout {
   return layout;
 }
 
+/** One layout holding every mounted repo; each repo's plates are untouched by the others. */
+export function mergeLayouts(layouts: readonly Layout[]): Layout {
+  const blocks: [BlockId, Placement][] = [];
+  const out = {
+    districts: [] as DistrictPlate[],
+    countries: [] as CountryPlate[],
+  };
+  const claims: Claim[] = [];
+  for (const l of layouts) {
+    blocks.push(...l.blocks);
+    out.districts.push(...l.districts);
+    out.countries.push(...l.countries);
+    for (const c of l.continents) claims.push({ repo: c.repo, extent: c.extent });
+  }
+  blocks.sort(([a], [b]) => compare(a, b));
+  const { standings, world } = placeContinents(claims);
+  const byRepo = new Map(claims.map((c) => [c.repo, c.extent]));
+  return {
+    blocks: new Map(blocks),
+    ...out,
+    continents: standingsToPlates(standings, byRepo),
+    world,
+  };
+}
+
+/** The plates of one repo taken out of a merged layout. */
+export function layoutOfRepo(layout: Layout, repo: RepoId): Layout {
+  const mine = (country: string): boolean => repoOf(country as BlockId) === repo;
+  return {
+    blocks: new Map([...layout.blocks].filter(([id]) => repoOf(id) === repo)),
+    districts: layout.districts.filter((d) => mine(d.country)),
+    countries: layout.countries.filter((c) => mine(c.country)),
+    continents: layout.continents.filter((c) => c.repo === repo),
+    world: layout.world,
+  };
+}
+
 export function serializeLayout(layout: Layout): SerializedLayout {
   return {
     blocks: [...layout.blocks].sort(([a], [b]) => compare(a, b)),
     districts: [...layout.districts],
     countries: [...layout.countries],
-    extent: layout.extent,
+    continents: [...layout.continents],
+    world: { ...layout.world },
   };
 }
 
@@ -250,16 +354,16 @@ export function placementDelta(previous: Layout, next: Layout): [BlockId, Placem
   return out.sort(([a], [b]) => compare(a, b));
 }
 
-/** The rects and extent of a layout, what a repack carries beside its placements. */
+/** The plates of a layout, what a repack carries beside its placements. */
 export function groundOf(layout: Layout): {
   districts: DistrictPlate[];
   countries: CountryPlate[];
-  extent: Extent;
+  continents: ContinentPlate[];
 } {
   return {
     districts: [...layout.districts],
     countries: [...layout.countries],
-    extent: layout.extent,
+    continents: [...layout.continents],
   };
 }
 
@@ -269,6 +373,10 @@ export function parseLayout(serialized: SerializedLayout): Layout {
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function sortContinents(continents: Continent[]): void {
+  continents.sort((a, b) => compare(a.repo, b.repo));
 }
 
 function placementOf(country: Country, district: District, t: Tower): Placement {
@@ -283,8 +391,8 @@ function placementOf(country: Country, district: District, t: Tower): Placement 
 }
 
 /** Every plate is the bounding box of its platforms; block cells never change. */
-function normalize(model: Model): void {
-  for (const c of model.countries) {
+function normalize(continent: Continent): void {
+  for (const c of continent.countries) {
     if (c.districts.length === 0) continue;
     const x0 = Math.min(...c.districts.map((d) => d.x));
     const z0 = Math.min(...c.districts.map((d) => d.z));
@@ -302,51 +410,75 @@ function normalize(model: Model): void {
 }
 
 function toLayout(model: Model): Layout {
-  normalize(model);
   const entries: [BlockId, Placement][] = [];
   const districts: DistrictPlate[] = [];
   const countries: CountryPlate[] = [];
-  for (const c of model.countries) {
-    countries.push({
-      country: c.name,
+  const claims: Claim[] = [];
+  for (const ct of model.continents) {
+    normalize(ct);
+    claims.push({ repo: ct.repo, extent: { ...ct.extent } });
+    for (const c of ct.countries) {
+      countries.push({
+        country: c.name,
+        family: c.family,
+        variant: c.variant,
+        x: c.x,
+        z: c.z,
+        w: c.w,
+        h: c.h,
+      });
+      for (const d of c.districts) {
+        districts.push({
+          country: c.name,
+          district: d.name,
+          x: c.x + d.x,
+          z: c.z + d.z,
+          w: d.w,
+          h: d.h,
+        });
+        for (const t of d.towers.values()) entries.push([t.id, placementOf(c, d, t)]);
+      }
+    }
+  }
+  entries.sort(([a], [b]) => compare(a, b));
+  const { standings, world } = placeContinents(claims);
+  const byRepo = new Map(claims.map((c) => [c.repo, c.extent]));
+  return {
+    blocks: new Map(entries),
+    districts,
+    countries,
+    continents: standingsToPlates(standings, byRepo),
+    world,
+  };
+}
+
+function toModel(layout: Layout): Model {
+  const continents: Continent[] = layout.continents.map((c) => ({
+    repo: c.repo,
+    countries: [],
+    extent: { ...c.extent },
+  }));
+  const byRepo = new Map(continents.map((c) => [c.repo, c]));
+  const countries = new Map<string, Country>();
+  for (const c of layout.countries) {
+    const ct = byRepo.get(repoOfName(c.country));
+    if (!ct) continue;
+    const country: Country = {
+      name: c.country,
       family: c.family,
       variant: c.variant,
       x: c.x,
       z: c.z,
       w: c.w,
       h: c.h,
-    });
-    for (const d of c.districts) {
-      districts.push({
-        country: c.name,
-        district: d.name,
-        x: c.x + d.x,
-        z: c.z + d.z,
-        w: d.w,
-        h: d.h,
-      });
-      for (const t of d.towers.values()) entries.push([t.id, placementOf(c, d, t)]);
-    }
+      districts: [],
+    };
+    ct.countries.push(country);
+    countries.set(c.country, country);
   }
-  entries.sort(([a], [b]) => compare(a, b));
-  return { blocks: new Map(entries), districts, countries, extent: { ...model.extent } };
-}
-
-function toModel(layout: Layout): Model {
-  const countries: Country[] = layout.countries.map((c) => ({
-    name: c.country,
-    family: c.family,
-    variant: c.variant,
-    x: c.x,
-    z: c.z,
-    w: c.w,
-    h: c.h,
-    districts: [],
-  }));
-  const byName = new Map(countries.map((c) => [c.name, c]));
   const districts = new Map<string, District>();
   for (const d of layout.districts) {
-    const c = byName.get(d.country);
+    const c = countries.get(d.country);
     if (!c) continue;
     const district: District = {
       name: d.district,
@@ -360,7 +492,7 @@ function toModel(layout: Layout): Model {
     districts.set(`${d.country}\0${d.district}`, district);
   }
   for (const [id, p] of layout.blocks) {
-    const c = byName.get(p.country);
+    const c = countries.get(p.country);
     const d = districts.get(`${p.country}\0${p.district}`);
     if (!c || !d) continue;
     d.towers.set(id, {
@@ -372,17 +504,19 @@ function toModel(layout: Layout): Model {
       binary: p.binary,
     });
   }
-  return { countries, extent: { ...layout.extent } };
+  return { continents };
 }
 
 function find(
   model: Model,
   id: BlockId,
-): { country: Country; district: District; tower: Tower } | undefined {
-  for (const country of model.countries) {
-    for (const district of country.districts) {
-      const t = district.towers.get(id);
-      if (t) return { country, district, tower: t };
+): { continent: Continent; country: Country; district: District; tower: Tower } | undefined {
+  for (const continent of model.continents) {
+    for (const country of continent.countries) {
+      for (const district of country.districts) {
+        const t = district.towers.get(id);
+        if (t) return { continent, country, district, tower: t };
+      }
     }
   }
   return undefined;
@@ -394,8 +528,13 @@ function remove(model: Model, id: BlockId): Repack | undefined {
   found.district.towers.delete(id);
   if (found.district.towers.size > 0) return undefined;
   found.country.districts = found.country.districts.filter((d) => d !== found.district);
-  if (found.country.districts.length > 0) return settle(model, found.country, 'district-left');
-  model.countries = model.countries.filter((c) => c !== found.country);
+  if (found.country.districts.length > 0) {
+    return settle(found.continent, found.country, 'district-left');
+  }
+  found.continent.countries = found.continent.countries.filter((c) => c !== found.country);
+  if (found.continent.countries.length === 0) {
+    model.continents = model.continents.filter((c) => c !== found.continent);
+  }
   return { scope: 'country', country: found.country.name };
 }
 
@@ -431,9 +570,21 @@ function grownSizes(rect: Rect): [Extent, Extent] {
   return rect.w <= rect.h ? [column, row] : [row, column];
 }
 
+function continentFor(model: Model, country: string): Continent {
+  const repo = repoOfName(country);
+  let ct = model.continents.find((c) => c.repo === repo);
+  if (!ct) {
+    ct = { repo, countries: [], extent: { w: 0, h: 0 } };
+    model.continents.push(ct);
+    sortContinents(model.continents);
+  }
+  return ct;
+}
+
 function add(model: Model, block: Block): { placement: Placement; repack?: Repack } {
   let repack: Repack | undefined;
-  let country = model.countries.find((c) => c.name === block.country);
+  const continent = continentFor(model, block.country);
+  let country = continent.countries.find((c) => c.name === block.country);
   if (!country) {
     country = {
       name: block.country,
@@ -445,13 +596,13 @@ function add(model: Model, block: Block): { placement: Placement; repack?: Repac
       h: 0,
       districts: [],
     };
-    model.countries.push(country);
+    continent.countries.push(country);
   }
   let district = country.districts.find((d) => d.name === block.district);
   if (!district) {
     district = { name: block.district, x: 0, z: 0, ...gridFor(1), towers: new Map() };
     country.districts.push(district);
-    repack = placeDistrict(model, country, district);
+    repack = settle(continent, country, 'district-arrived');
   }
 
   let cell = freeCell(district);
@@ -470,7 +621,7 @@ function add(model: Model, block: Block): { placement: Placement; repack?: Repac
     district.h = size.h;
     repack = inPlace
       ? { scope: 'district', country: country.name, district: district.name }
-      : settle(model, country, 'no-room');
+      : settle(continent, country, 'no-room');
     cell = freeCell(district);
     if (!cell) throw new Error(`no free cell in ${country.name}/${district.name} after growth`);
   }
@@ -480,23 +631,18 @@ function add(model: Model, block: Block): { placement: Placement; repack?: Repac
   return { placement: placementOf(country, district, t), ...(repack && { repack }) };
 }
 
-function placeDistrict(model: Model, country: Country, district: District): Repack {
-  void district;
-  return settle(model, country, 'district-arrived');
-}
-
-function settle(model: Model, country: Country, reason: SettleReason): Repack {
+function settle(continent: Continent, country: Country, reason: SettleReason): Repack {
   void reason;
   const size = reshelve(country);
   country.w = size.w;
   country.h = size.h;
-  const others = model.countries.filter((c) => c !== country);
+  const others = continent.countries.filter((c) => c !== country);
   const fits = others.every((o) => apart(country, o, COUNTRY_GAP));
   if (fits) {
-    model.extent = bounds(model.countries);
+    continent.extent = grow(continent.extent, bounds(continent.countries));
     return { scope: 'country', country: country.name };
   }
-  const spot = findSpot(country, model.extent, others, COUNTRY_GAP);
+  const spot = findSpot(country, continent.extent, others, COUNTRY_GAP);
   if (spot) {
     country.x = spot.x;
     country.z = spot.z;
@@ -504,16 +650,21 @@ function settle(model: Model, country: Country, reason: SettleReason): Repack {
     country.x = 0;
     country.z = 0;
   } else {
-    const right = model.extent.w + COUNTRY_GAP + country.w;
-    const below = model.extent.h + COUNTRY_GAP + country.h;
+    const right = continent.extent.w + COUNTRY_GAP + country.w;
+    const below = continent.extent.h + COUNTRY_GAP + country.h;
     const growRight =
-      Math.abs(Math.log(right / model.extent.h)) <= Math.abs(Math.log(model.extent.w / below));
-    country.x = growRight ? model.extent.w + COUNTRY_GAP : 0;
-    country.z = growRight ? 0 : model.extent.h + COUNTRY_GAP;
+      Math.abs(Math.log(right / continent.extent.h)) <=
+      Math.abs(Math.log(continent.extent.w / below));
+    country.x = growRight ? continent.extent.w + COUNTRY_GAP : 0;
+    country.z = growRight ? 0 : continent.extent.h + COUNTRY_GAP;
   }
-  model.extent = bounds(model.countries);
-  assignVariants(model.countries, COUNTRY_GAP);
+  continent.extent = grow(continent.extent, bounds(continent.countries));
+  assignVariants(continent.countries, COUNTRY_GAP);
   return { scope: 'map', country: country.name };
+}
+
+function grow(a: Extent, b: Extent): Extent {
+  return { w: Math.max(a.w, b.w), h: Math.max(a.h, b.h) };
 }
 
 function bounds(rects: readonly Rect[]): Extent {

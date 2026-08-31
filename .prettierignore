@@ -3,3 +3,6 @@ coverage
 node_modules
 package-lock.json
 docs/mockups/data/*.local.js
+docs/mockups/data/web2-cities.js
+docs/mockups/data/world-regions.js
+docs/mockups/data/shoreline-layout.js

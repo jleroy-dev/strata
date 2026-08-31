@@ -24,7 +24,7 @@ interface Batch {
 
 const INITIAL = 256;
 
-/** Screen-space lines for every ribbon, trail and lit road; one batch per pixel width. */
+/** Screen-space lines for every ribbon and trail; one batch per pixel width. */
 export class Lines {
   private readonly sources: SegmentSource[] = [];
   private readonly batches = new Map<number, Batch>();

@@ -1,6 +1,5 @@
 import type { BlockId } from './events.js';
-import type { Cell, CountryPlate, DistrictPlate, Layout } from './layout.js';
-import type { Extent } from './shelf.js';
+import type { Cell, ContinentPlate, CountryPlate, DistrictPlate, Layout } from './layout.js';
 import type { Sessions } from './weather.js';
 
 export const RISE_MS = 600;
@@ -41,7 +40,7 @@ export type Motion =
       kind: 'ground';
       districts: readonly DistrictPlate[];
       countries: readonly CountryPlate[];
-      extent: Extent;
+      continents: readonly ContinentPlate[];
     }
   | { kind: 'arrive'; agentId: string }
   | { kind: 'depart'; agentId: string }
@@ -69,12 +68,7 @@ export function motions(
     const before = previous.layout.blocks.get(from);
     if (!before) {
       out.push({ kind: 'rise', id, cell: placed.cell });
-    } else if (
-      before.cell.x !== placed.cell.x ||
-      before.cell.z !== placed.cell.z ||
-      before.country !== placed.country ||
-      before.district !== placed.district
-    ) {
+    } else if (before.cell.x !== placed.cell.x || before.cell.z !== placed.cell.z) {
       if (before.country === placed.country && before.district === placed.district) {
         out.push({ kind: 'slide', id, fromCell: before.cell, toCell: placed.cell });
       } else {
@@ -92,13 +86,14 @@ export function motions(
 
   if (
     !sameRects(previous.layout.districts, next.layout.districts) ||
-    !sameRects(previous.layout.countries, next.layout.countries)
+    !sameRects(previous.layout.countries, next.layout.countries) ||
+    !sameContinents(previous.layout.continents, next.layout.continents)
   ) {
     out.push({
       kind: 'ground',
       districts: next.layout.districts,
       countries: next.layout.countries,
-      extent: next.layout.extent,
+      continents: next.layout.continents,
     });
   }
 
@@ -184,6 +179,27 @@ function sameRects(
     const s = b[i];
     if (s === undefined) return false;
     return r.x === s.x && r.z === s.z && r.w === s.w && r.h === s.h;
+  });
+}
+
+function sameContinents(a: readonly ContinentPlate[], b: readonly ContinentPlate[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((c, i) => {
+    const d = b[i];
+    if (!d) return false;
+    return (
+      c.repo === d.repo &&
+      c.extent.w === d.extent.w &&
+      c.extent.h === d.extent.h &&
+      c.land.x === d.land.x &&
+      c.land.z === d.land.z &&
+      c.land.w === d.land.w &&
+      c.land.h === d.land.h &&
+      c.claim.w === d.claim.w &&
+      c.claim.h === d.claim.h &&
+      c.at.x === d.at.x &&
+      c.at.z === d.at.z
+    );
   });
 }
 

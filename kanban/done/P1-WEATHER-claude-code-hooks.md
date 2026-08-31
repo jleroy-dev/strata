@@ -30,4 +30,4 @@ each session in its own derived colour.
 ## Definition of Done
 
 - [x] Emissive only: colour and height untouched (ENGINEERING_NOTES law 3)
-- [ ] `npm run gate` green
+- [x] `npm run gate` green

@@ -25,5 +25,5 @@ The server watches the repo and emits `block.added`, `block.removed`, `block.cha
 ## Definition of Done
 
 - [x] Specs on the reconcile and rename logic (pure parts in core)
-- [ ] `npm run gate` green
+- [x] `npm run gate` green
 - [x] ENGINEERING_NOTES §3 updated

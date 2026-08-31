@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · blocked board</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b0d12;
+        color: #c9cfdb;
+        font:
+          13px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      h1 {
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin: 18px 20px 6px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+      p.lead {
+        margin: 0 20px 14px;
+        max-width: 940px;
+        color: #8a94ab;
+      }
+      p.lead b {
+        color: #dfe6f5;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+        gap: 16px;
+        padding: 0 20px 30px;
+      }
+      .card {
+        background: #12151c;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0;
+        padding: 8px 12px;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #1c2130;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+      }
+      .card h2 .cur {
+        color: #7fb3ff;
+      }
+      .card h2 .no {
+        color: #f2c14e;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 250px;
+      }
+      .notes {
+        padding: 10px 12px 12px;
+        color: #9aa5bd;
+      }
+      .notes b {
+        color: #dfe6f5;
+      }
+      .stage {
+        position: relative;
+      }
+      .legend {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 8px;
+        display: flex;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6f7b94;
+      }
+      .legend span {
+        flex: 1;
+        text-align: center;
+      }
+      .legend span.subject {
+        color: #dfe6f5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Blocked · telling the user's move from the agent's</h1>
+    <p class="lead">
+      Every card shows the same three beacons at the same scale:
+      <b>thinking</b> (a prompt landed or a tool finished, the agent is working on something the
+      panel cannot name), <b>waiting</b> (the turn is over), and <b>blocked</b> (a permission or a
+      question is in the way). Thinking and waiting are settled and identical in all four cards:
+      thinking keeps the live halo and the quick breathe, waiting drops to half and slows. Only the
+      treatment of <b>blocked</b> changes. None of the candidates adds a fourth kind of motion, so
+      the read/edit/run trio keeps its three exclusive axes. <br /><br />
+      The test is peripheral, not central: glance away from the screen and back, and see whether the
+      blocked one is the one your eye lands on.
+    </p>
+    <div class="board" id="board"></div>
+
+    <script type="importmap">
+      {
+        "imports": { "three": "https://unpkg.com/three@0.170.0/build/three.module.js" }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+
+      const HUE = 175;
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+      const AGENT = hsl(HUE, 1, 0.62);
+
+      function haloTexture() {
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+        grad.addColorStop(0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.35, 'rgba(255,255,255,0.5)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 128, 128);
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+
+      function ringTexture(dashed) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 160;
+        const g = c.getContext('2d');
+        g.strokeStyle = '#ffffff';
+        g.lineWidth = 8;
+        if (dashed) g.setLineDash([16, 13]);
+        g.beginPath();
+        g.arc(80, 80, 60, 0, Math.PI * 2);
+        g.stroke();
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+
+      function caretTexture() {
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        g.fillStyle = '#ffffff';
+        g.beginPath();
+        g.moveTo(64, 34);
+        g.lineTo(96, 86);
+        g.lineTo(32, 86);
+        g.closePath();
+        g.fill();
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+
+      const HALO = haloTexture();
+      const RING = ringTexture(false);
+      const DASHED = ringTexture(true);
+      const CARET = caretTexture();
+
+      /** One beacon on its tower: core, halo, stem, and an optional mark above it. */
+      function beacon(scene, x, verb, mark) {
+        const group = new THREE.Group();
+        group.position.x = x;
+        const tower = new THREE.Mesh(
+          new THREE.BoxGeometry(0.8, 1.6, 0.8),
+          new THREE.MeshStandardMaterial({ color: hsl(212, 0.35, 0.34), flatShading: true }),
+        );
+        tower.position.y = 0.8;
+        group.add(tower);
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.12, 16, 12),
+          new THREE.MeshBasicMaterial({ color: AGENT }),
+        );
+        core.position.y = 2.5;
+        group.add(core);
+        const halo = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: HALO,
+            color: AGENT,
+            transparent: true,
+            depthWrite: false,
+          }),
+        );
+        halo.position.copy(core.position);
+        group.add(halo);
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6),
+          new THREE.MeshBasicMaterial({ color: AGENT, transparent: true, opacity: 0.45 }),
+        );
+        stem.position.y = 2.05;
+        group.add(stem);
+        let extra;
+        if (mark === 'ring' || mark === 'dashed') {
+          extra = new THREE.Sprite(
+            new THREE.SpriteMaterial({
+              map: mark === 'ring' ? RING : DASHED,
+              color: AGENT,
+              transparent: true,
+              depthWrite: false,
+            }),
+          );
+          extra.position.copy(core.position);
+          extra.scale.setScalar(1.15);
+          group.add(extra);
+        }
+        if (mark === 'caret') {
+          extra = new THREE.Sprite(
+            new THREE.SpriteMaterial({
+              map: CARET,
+              color: AGENT,
+              transparent: true,
+              depthWrite: false,
+            }),
+          );
+          extra.position.set(0, 3.15, 0);
+          extra.scale.setScalar(0.42);
+          group.add(extra);
+        }
+        scene.add(group);
+        return { core, halo, stem, extra, verb, mark };
+      }
+
+      function card(title, badge, badgeClass, marks, notesHtml) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        const h = document.createElement('h2');
+        h.innerHTML = `<span>${title}</span><span class="${badgeClass}">${badge}</span>`;
+        el.appendChild(h);
+        const stage = document.createElement('div');
+        stage.className = 'stage';
+        const canvas = document.createElement('canvas');
+        stage.appendChild(canvas);
+        const legend = document.createElement('div');
+        legend.className = 'legend';
+        legend.innerHTML =
+          '<span>thinking</span><span>waiting</span><span class="subject">blocked</span>';
+        stage.appendChild(legend);
+        el.appendChild(stage);
+        const notes = document.createElement('div');
+        notes.className = 'notes';
+        notes.innerHTML = notesHtml;
+        el.appendChild(notes);
+        document.getElementById('board').appendChild(el);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.setSize(440, 250, false);
+        renderer.toneMapping = THREE.AgXToneMapping;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0c11);
+        scene.add(new THREE.HemisphereLight(0x9fb0cc, 0x3a3230, 0.7));
+        const key = new THREE.DirectionalLight(0xffd9b0, 1.5);
+        key.position.set(-6, 10, 8);
+        scene.add(key);
+        const camera = new THREE.PerspectiveCamera(30, 440 / 250, 0.1, 100);
+        camera.position.set(0.6, 4.4, 11);
+        camera.lookAt(0, 2.1, 0);
+
+        const ground = new THREE.Mesh(
+          new THREE.BoxGeometry(11, 0.2, 4),
+          new THREE.MeshStandardMaterial({ color: hsl(212, 0.2, 0.13), flatShading: true }),
+        );
+        ground.position.y = -0.1;
+        scene.add(ground);
+
+        const beacons = [
+          beacon(scene, -3, 'thinking', undefined),
+          beacon(scene, 0, 'waiting', undefined),
+          beacon(scene, 3, 'blocked', marks),
+        ];
+        return { renderer, scene, camera, beacons };
+      }
+
+      const scenes = [];
+
+      scenes.push(
+        card(
+          'A · Roster word only',
+          'floor',
+          'no',
+          undefined,
+          `Blocked takes the waiting posture and nothing else, exactly as <code>idle</code> and
+           <code>waiting</code> are identical today. Honest and free.
+           <br /><br /><b>Why not:</b> the one state that <i>needs</i> you is the one state that
+           looks like nothing is happening. It is only readable if you go and read the roster,
+           which is the opposite of what the panel is for.`,
+        ),
+      );
+
+      scenes.push(
+        card(
+          'B · Static reticle ring',
+          'recommended',
+          'rec',
+          'ring',
+          `A thin ring around the core, static, in the agent's hue. It is the selection reticle the
+           design already lists in its borrowed spectator vocabulary, used here to mean "this one
+           is on you".
+           <br /><br />Static, so it does not add a fourth motion axis and does not compete with a
+           read sweep or an edit burst happening elsewhere. It reads as a mark rather than an
+           event, which is right: being blocked is a state, and the moment it started is not the
+           thing you care about.`,
+        ),
+      );
+
+      scenes.push(
+        card(
+          'C · Dashed ring',
+          'variant',
+          'cur',
+          'dashed',
+          `The same idea with the ring broken. It reads a little more like an interface element and
+           less like a halo artefact, which helps it survive bloom.
+           <br /><br />Worth comparing against B at a squint: the gaps make it lighter, which may
+           be too light for the one state that wants you back.`,
+        ),
+      );
+
+      scenes.push(
+        card(
+          'D · Caret above',
+          'variant',
+          'cur',
+          'caret',
+          `A small triangle floating over the beacon, the off-screen indicator every game uses to
+           say "over here".
+           <br /><br />It is the loudest of the four and the easiest to catch in peripheral vision.
+           It is also the most figurative thing on the map, and the design refuses lettering and
+           figurative marks on the terrain. A caret is close to that line.`,
+        ),
+      );
+
+      function frame(now) {
+        const t = now / 1000;
+        for (const s of scenes) {
+          for (const b of s.beacons) {
+            const settled = b.verb === 'waiting' || b.verb === 'blocked';
+            const breathe = 1 + 0.08 * Math.sin(t * (settled ? 1.4 : 2.5));
+            b.halo.scale.setScalar(1.5 * breathe);
+            b.halo.material.opacity = settled ? 0.5 : 1;
+            b.core.scale.setScalar(settled ? 0.9 : 1);
+            if (b.extra && b.mark !== 'caret') b.extra.scale.setScalar(1.15 * breathe);
+            if (b.extra && b.mark === 'caret') b.extra.position.y = 3.15 + 0.05 * breathe;
+          }
+          s.renderer.render(s.scene, s.camera);
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

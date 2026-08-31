@@ -1,4 +1,5 @@
 import type { Block } from './events.js';
+import { qualify, repoPath, type RepoId } from './qualified.js';
 
 /** Files whose presence makes a folder a workspace project, and so a country. */
 export const PROJECT_MARKERS: readonly string[] = [
@@ -13,7 +14,11 @@ export const PROJECT_MARKERS: readonly string[] = [
  * a file above every marker falls to its top-level folder, or to the root.
  * A district is the file's parent folder, relative to its country.
  */
-export function placeBlocks(paths: readonly string[], sizes: ReadonlyMap<string, number>): Block[] {
+export function placeBlocks(
+  repo: RepoId,
+  paths: readonly string[],
+  sizes: ReadonlyMap<string, number>,
+): Block[] {
   const projectDirs = new Set<string>();
   for (const path of paths) {
     const slash = path.lastIndexOf('/');
@@ -23,12 +28,17 @@ export function placeBlocks(paths: readonly string[], sizes: ReadonlyMap<string,
     }
   }
 
-  return [...paths].sort().map((id) => {
-    const country = countryOf(id, projectDirs);
-    const slash = id.lastIndexOf('/');
-    const folder = slash === -1 ? '' : id.slice(0, slash);
+  return [...paths].sort().map((path) => {
+    const country = countryOf(path, projectDirs);
+    const slash = path.lastIndexOf('/');
+    const folder = slash === -1 ? '' : path.slice(0, slash);
     const district = country === '' ? folder : folder.slice(country.length).replace(/^\//, '');
-    return { id, country, district, size: sizes.get(id) ?? 0 };
+    return {
+      id: qualify(repo, repoPath(path)),
+      country: qualify(repo, repoPath(country)),
+      district,
+      size: sizes.get(path) ?? 0,
+    };
   });
 }
 

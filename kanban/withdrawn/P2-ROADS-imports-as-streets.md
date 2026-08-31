@@ -29,3 +29,11 @@ selected block; nothing is drawn at rest (DESIGN.md · The vocabulary).
 
 - [x] Specs on resolution (pure parts in core)
 - [x] `npm run gate` green
+
+## Withdrawn 2026-08-31
+
+Built, shipped, and taken back out the same week. Nothing but the selection highlight ever
+read a road, and the highlight is not wanted: what the map needs between two blocks is the
+street an agent walks, which `route()` derives from the layout alone and never needed an
+import. The resolver, the scan, the `roads.seeded` baseline and the `~/.strata` cache went
+with it. See ENGINEERING_NOTES section 6.

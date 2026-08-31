@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { REPO, at } from './fixtures/ids.js';
+import { pathOf, type BlockId } from './qualified.js';
 import type { Block, StrataEvent } from './events.js';
 import { FIXTURE_FILES } from './fixtures/repo.js';
 import { placeBlocks } from './hierarchy.js';
@@ -14,12 +16,13 @@ import {
 
 const files = (): Block[] =>
   placeBlocks(
+    REPO,
     FIXTURE_FILES.map(([id]) => id),
     new Map(FIXTURE_FILES),
   );
-const block = (id: string, size = 1000): Block =>
-  placeBlocks([id, ...FIXTURE_FILES.map(([f]) => f)], new Map([[id, size]])).find(
-    (b) => b.id === id,
+const block = (path: string, size = 1000): Block =>
+  placeBlocks(REPO, [path, ...FIXTURE_FILES.map(([f]) => f)], new Map([[path, size]])).find(
+    (b) => b.id === at(path),
   )!;
 
 /** What the server emits for one change, placements included. */
@@ -36,6 +39,7 @@ function emit(
   if (result.repack) {
     events.push({
       kind: 'layout.repacked',
+      repo: REPO,
       ...result.repack,
       blocks: placementDelta(layout, result.layout),
       ...groundOf(result.layout),
@@ -51,7 +55,7 @@ describe('foldTerrain reproduces applyTerrain from its events', () => {
     let folded = layout;
     let seed = 11;
     const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const ids = (): string[] => [...layout.blocks.keys()];
+    const ids = (): BlockId[] => [...layout.blocks.keys()];
     for (let i = 0; i < 300; i++) {
       const roll = rnd();
       const pick = ids()[Math.floor(rnd() * ids().length)]!;
@@ -68,7 +72,7 @@ describe('foldTerrain reproduces applyTerrain from its events', () => {
         change = {
           kind: 'block.moved',
           from: pick,
-          block: block(pick.replace(/\.[a-z]+$/, `-r${String(i)}.ts`)),
+          block: block(pathOf(pick).replace(/\.[a-z]+$/, `-r${String(i)}.ts`)),
         };
       else if (roll < 0.85)
         change = { kind: 'block.moved', from: pick, block: block(`docs/moved-${String(i)}.md`) };
@@ -92,11 +96,11 @@ describe('foldTerrain reproduces applyTerrain from its events', () => {
 describe('foldMoment on a move', () => {
   it('carries the sessions and touches of a renamed block to its new id', () => {
     const h = new History(base0, 0);
-    const from = 'docs/NOTES.md';
+    const from = at('docs/NOTES.md');
     const moved = block('docs/NOTES-2.md', 6400);
     const step = emit(base0, { kind: 'block.moved', from, block: moved }, 10);
-    h.push({ kind: 'agent.arrived', agentId: 'a', at: 1 });
-    h.push({ kind: 'agent.editing', agentId: 'a', id: from, at: 2 });
+    h.push({ kind: 'agent.arrived', repo: REPO, agentId: 'a', at: 1 });
+    h.push({ kind: 'agent.editing', repo: REPO, agentId: 'a', id: from, at: 2 });
     for (const e of step.events) h.push(e);
     const now = h.now();
     expect(now.sessions.get('a')?.block).toBe(moved.id);
@@ -113,15 +117,16 @@ describe('History', () => {
   it('keeps now incrementally and rebuilds any past moment', () => {
     const h = new History(base, 0);
     let layout = base;
-    const adds: string[] = [];
+    const adds: BlockId[] = [];
     for (let i = 1; i <= KEYFRAME_EVERY * 2 + 5; i++) {
       const added = block(`docs/n${String(i)}.md`);
       adds.push(added.id);
       const step = emit(layout, { kind: 'block.added', block: added }, i * 1000);
       layout = step.layout;
       for (const e of step.events) h.push(e);
-      if (i === 5) h.push({ kind: 'agent.arrived', agentId: 'a', at: 5_500 });
-      if (i === 6) h.push({ kind: 'agent.editing', agentId: 'a', id: adds[2]!, at: 6_500 });
+      if (i === 5) h.push({ kind: 'agent.arrived', repo: REPO, agentId: 'a', at: 5_500 });
+      if (i === 6)
+        h.push({ kind: 'agent.editing', repo: REPO, agentId: 'a', id: adds[2]!, at: 6_500 });
     }
     expect(serializeLayout(h.now().layout)).toEqual(serializeLayout(layout));
     const early = h.at(3_000);
@@ -132,6 +137,51 @@ describe('History', () => {
     expect(mid.layout.blocks.size).toBe(base.blocks.size + KEYFRAME_EVERY);
     expect(mid.sessions.get('a')?.block).toBe(adds[2]);
     expect(mid.touches.get(adds[2]!)).toHaveLength(1);
+  });
+
+  it('derives now from the baseline and the log, the same world the server holds', () => {
+    const server = new History(base, 0);
+    let layout = base;
+    for (let i = 1; i <= 6; i++) {
+      const step = emit(
+        layout,
+        { kind: 'block.added', block: block(`docs/d${String(i)}.md`) },
+        i * 1000,
+      );
+      layout = step.layout;
+      for (const e of step.events) server.push(e);
+    }
+    server.push({ kind: 'agent.arrived', repo: REPO, agentId: 'a', at: 6_500 });
+
+    const panel = new History(layoutOf([]), 0);
+    panel.restore(server.baseline, server.baselineAt, server.log);
+    expect(serializeLayout(panel.now().layout)).toEqual(serializeLayout(layout));
+    expect(serializeLayout(panel.now().layout)).toEqual(serializeLayout(server.now().layout));
+    expect(panel.now().sessions.size).toBe(1);
+  });
+
+  it('folds a run without writing into the moment it started from', () => {
+    const h = new History(base, 0);
+    let layout = base;
+    const last = KEYFRAME_EVERY * 2 + 10;
+    for (let i = 1; i <= last; i++) {
+      const step = emit(
+        layout,
+        { kind: 'block.added', block: block(`docs/f${String(i)}.md`) },
+        i * 1000,
+      );
+      layout = step.layout;
+      for (const e of step.events) h.push(e);
+    }
+    const baselineSize = h.baseline.blocks.size;
+    const early = serializeLayout(h.at(5_000).layout);
+    const late = serializeLayout(h.at(last * 1000).layout);
+
+    expect(h.baseline.blocks.size).toBe(baselineSize);
+    expect(serializeLayout(h.at(5_000).layout)).toEqual(early);
+    expect(late).toEqual(serializeLayout(h.now().layout));
+    expect(h.at(5_000).layout.blocks.size).toBeLessThan(h.now().layout.blocks.size);
+    expect(serializeLayout(h.at(5_000).layout)).toEqual(early);
   });
 
   it('expires old events into the baseline without changing now', () => {
@@ -152,6 +202,6 @@ describe('History', () => {
     expect(h.baselineAt).toBeGreaterThan(0);
     expect(serializeLayout(h.now().layout)).toEqual(before);
     expect(serializeLayout(h.at(30_000).layout)).toEqual(before);
-    expect(h.baseline.blocks.has('docs/e5.md')).toBe(true);
+    expect(h.baseline.blocks.has(at('docs/e5.md'))).toBe(true);
   });
 });

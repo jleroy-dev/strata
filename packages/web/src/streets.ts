@@ -1,12 +1,15 @@
 import * as THREE from 'three';
-import type { Layout } from '@strata/core';
+import { repoOfName, type Layout } from '@strata/core';
 
 export type Occupied = (x: number, z: number) => boolean;
 
-/** Whether a lattice cell holds a tower, from the layout's placements. */
-export function occupiedBy(layout: Layout): Occupied {
+/** Whether a cell of a country's continent holds a tower, from the layout's placements. */
+export function occupiedBy(layout: Layout, country: string): Occupied {
+  const key = repoOfName(country);
   const cells = new Set<string>();
-  for (const p of layout.blocks.values()) cells.add(`${String(p.cell.x)},${String(p.cell.z)}`);
+  for (const p of layout.blocks.values()) {
+    if (repoOfName(p.country) === key) cells.add(`${String(p.cell.x)},${String(p.cell.z)}`);
+  }
   return (x, z) => cells.has(`${String(x)},${String(z)}`);
 }
 

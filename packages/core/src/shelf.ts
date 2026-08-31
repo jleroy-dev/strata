@@ -10,6 +10,11 @@ export interface Extent {
   h: number;
 }
 
+export interface Cell {
+  x: number;
+  z: number;
+}
+
 export const ASPECT_SEARCH = { from: 0.8, to: 1.8, step: 0.05 } as const;
 
 /** Rows left to right, top to bottom, `gap` cells between items and rows. Mutates positions. */

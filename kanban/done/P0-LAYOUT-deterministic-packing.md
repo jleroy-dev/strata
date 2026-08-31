@@ -36,5 +36,5 @@ shelved on a stable grid.
 ## Definition of Done
 
 - [x] Snapshot spec committed with a fixture repo listing
-- [ ] `npm run gate` green
+- [x] `npm run gate` green
 - [x] DESIGN.md · Layout updated with what was chosen

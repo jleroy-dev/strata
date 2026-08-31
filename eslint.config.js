@@ -10,6 +10,9 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/coverage/**',
       'docs/mockups/data/*.local.js',
+      'docs/mockups/data/web2-cities.js',
+      'docs/mockups/data/world-regions.js',
+      'docs/mockups/data/shoreline-layout.js',
     ],
   },
   js.configs.recommended,
@@ -38,6 +41,12 @@ export default tseslint.config(
   {
     files: ['docs/mockups/data/*.mjs'],
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+  },
+  {
+    files: ['docs/mockups/data/system-lib.js', 'docs/mockups/data/world-lib.js'],
+    languageOptions: {
+      globals: { document: 'readonly', window: 'readonly', devicePixelRatio: 'readonly' },
+    },
   },
   prettier,
 );

@@ -1,5 +1,6 @@
-import type { Block, BlockId, TerrainChange } from './events.js';
+import type { Block, TerrainChange } from './events.js';
 import { placeBlocks } from './hierarchy.js';
+import { pathOf, qualify, repoPath, type RepoId, type RepoPath } from './qualified.js';
 
 /** What git lists for one path: its size, and its index blob sha when tracked. */
 export interface Entry {
@@ -7,7 +8,7 @@ export interface Entry {
   sha?: string;
 }
 
-export type Listing = ReadonlyMap<BlockId, Entry>;
+export type Listing = ReadonlyMap<RepoPath, Entry>;
 
 /** True when a tick has both departures and arrivals, so pairing may need content hashes. */
 export function needsHashes(previous: Listing, next: Listing): boolean {
@@ -24,28 +25,27 @@ export function needsHashes(previous: Listing, next: Listing): boolean {
  * and size; never on size alone.
  */
 export function reconcile(
+  repo: RepoId,
   previous: Listing,
   next: Listing,
-  hashes: ReadonlyMap<BlockId, string> = new Map(),
+  hashes: ReadonlyMap<RepoPath, string> = new Map(),
 ): TerrainChange[] {
-  const blocks = new Map(
-    placeBlocks([...next.keys()], new Map([...next].map(([id, e]) => [id, e.size]))).map((b) => [
-      b.id,
-      b,
-    ]),
-  );
-  const before = new Map(
-    placeBlocks([...previous.keys()], new Map([...previous].map(([id, e]) => [id, e.size]))).map(
-      (b) => [b.id, b],
-    ),
-  );
+  const placed = (list: Listing): Map<RepoPath, Block> =>
+    new Map(
+      placeBlocks(repo, [...list.keys()], new Map([...list].map(([id, e]) => [id, e.size]))).map(
+        (b) => [pathOf(b.id), b],
+      ),
+    );
+  const blocks = placed(next);
+  const before = placed(previous);
+  const at = (path: RepoPath) => qualify(repo, path);
 
   const gone = [...previous.keys()].filter((id) => !next.has(id)).sort();
   const fresh = [...next.keys()].filter((id) => !previous.has(id)).sort();
 
-  const moved = new Map<BlockId, BlockId>();
-  const taken = new Set<BlockId>();
-  const pair = (matches: (from: BlockId, to: BlockId) => boolean): void => {
+  const moved = new Map<RepoPath, RepoPath>();
+  const taken = new Set<RepoPath>();
+  const pair = (matches: (from: RepoPath, to: RepoPath) => boolean): void => {
     for (const from of gone) {
       if (moved.has(from)) continue;
       const to = fresh.find((id) => !taken.has(id) && matches(from, id));
@@ -65,27 +65,27 @@ export function reconcile(
 
   const changes: TerrainChange[] = [];
   for (const [from, to] of foldersMoved(previous, moved))
-    changes.push({ kind: 'folder.moved', from, to });
+    changes.push({ kind: 'folder.moved', from: at(repoPath(from)), to: at(repoPath(to)) });
   for (const [from, to] of moved)
-    changes.push({ kind: 'block.moved', from, block: block(blocks, to) });
+    changes.push({ kind: 'block.moved', from: at(from), block: block(blocks, to) });
   for (const id of next.keys()) {
     if (previous.has(id) && !sameHome(before.get(id), blocks.get(id))) {
-      changes.push({ kind: 'block.moved', from: id, block: block(blocks, id) });
+      changes.push({ kind: 'block.moved', from: at(id), block: block(blocks, id) });
     }
   }
-  for (const id of gone) if (!moved.has(id)) changes.push({ kind: 'block.removed', id });
+  for (const id of gone) if (!moved.has(id)) changes.push({ kind: 'block.removed', id: at(id) });
   for (const id of fresh)
     if (!taken.has(id)) changes.push({ kind: 'block.added', block: block(blocks, id) });
   for (const [id, entry] of [...next].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const was = previous.get(id);
     if (was && was.size !== entry.size && sameHome(before.get(id), blocks.get(id))) {
-      changes.push({ kind: 'block.changed', id, size: entry.size });
+      changes.push({ kind: 'block.changed', id: at(id), size: entry.size });
     }
   }
   return changes;
 }
 
-function block(blocks: ReadonlyMap<BlockId, Block>, id: BlockId): Block {
+function block(blocks: ReadonlyMap<RepoPath, Block>, id: RepoPath): Block {
   const found = blocks.get(id);
   if (!found) throw new Error(`no block for ${id}`);
   return found;
@@ -102,7 +102,7 @@ function basename(id: string): string {
 /** Directories renamed as a whole: every file under them paired to the same new directory. */
 export function foldersMoved(
   previous: Listing,
-  moved: ReadonlyMap<BlockId, BlockId>,
+  moved: ReadonlyMap<RepoPath, RepoPath>,
 ): [string, string][] {
   const candidates = new Map<string, string>();
   for (const [from, to] of moved) {

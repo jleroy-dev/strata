@@ -1,7 +1,5 @@
-import type { Agent, Intent } from '@strata/core';
+import type { Agent, Intent, RosterState } from '@strata/core';
 import { panel } from './dom.js';
-
-export type RosterState = 'connecting' | 'disconnected' | 'deaf' | 'quiet' | 'cold' | 'live';
 
 const root = panel('roster');
 const veil = panel('veil');
@@ -20,13 +18,16 @@ export function drawRoster(
 ): void {
   veil.style.display = state === 'disconnected' ? 'block' : 'none';
   const children: HTMLElement[] = [];
-  if (rows.length === 0 || state === 'disconnected') {
+  if (rows.length === 0 || state === 'disconnected' || state === 'stale') {
     emptyRow ??= document.createElement('div');
     const row = emptyRow;
-    const className = `row empty${state === 'deaf' || state === 'disconnected' ? ' warn' : ''}`;
+    const warn = state === 'deaf' || state === 'stale' || state === 'disconnected';
+    const className = `row empty${warn ? ' warn' : ''}`;
     if (row.className !== className) row.className = className;
     let text: string;
     if (state === 'deaf') text = 'no hook in this project · ';
+    else if (state === 'stale') text = 'hooks out of date · reinstall to see every agent · ';
+    else if (state === 'unheard') text = 'hook installed · an agent shows on its next action';
     else if (state === 'disconnected') text = `no server on :4747 · last frame ${detail}`;
     else if (state === 'connecting') text = 'connecting';
     else if (state === 'cold') text = `no agent · quiet for ${detail}`;
@@ -34,7 +35,7 @@ export function drawRoster(
     if (row.dataset.text !== `${state}|${text}`) {
       row.dataset.text = `${state}|${text}`;
       row.replaceChildren(text);
-      if (state === 'deaf') {
+      if (state === 'deaf' || state === 'stale') {
         const code = document.createElement('code');
         code.textContent = 'npx strata hook install';
         row.append(code);

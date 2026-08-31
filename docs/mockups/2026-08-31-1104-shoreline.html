@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · shoreline board</title>
+    <style id="css"></style>
+  </head>
+  <body>
+    <h1>The shore · how much land a continent shows around its countries</h1>
+    <p class="lead">
+      Every card draws the same two repos: <code>strata</code> and the dev scratch, exactly as the
+      layout on a running server places them today, countries, folders and tower heights included.
+      Nothing is invented and nothing is sampled. The only variable is how far the land reaches past
+      the countries standing on it, and in cards E and F whether the minimum plate still applies to
+      the land. Plate skirts, slab heights and colours are the real ones from
+      <code>terrain.ts</code> and <code>theme.ts</code>. Rows one and three frame the
+      <code>strata</code> island; the scratch island moves between cards because a wider shore can
+      step the claim ladder and reshelve the world, which is the reservation doing its job.
+      <b>Drag any card to orbit.</b>
+    </p>
+    <table class="data" id="facts"></table>
+    <div class="board" id="board"></div>
+    <script src="data/shoreline-layout.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import * as L from './data/world-lib.js';
+      document.getElementById('css').textContent =
+        L.BOARD_CSS +
+        `
+        h1.sub { margin-top: 26px; color: rgba(255,255,255,0.42); font-size: 12px; }
+        .notes code { color: #cfe0ff; }
+        table.data td.bad { color: #f2a0a0; } table.data td.good { color: #b8e6a8; }
+      `;
+
+      const W = 520;
+      const H = 460;
+      const LAYOUT = window.LAYOUT;
+
+      /** The drawn skirt of each tier, from terrain.ts: a plate is its rect grown by this. */
+      const COUNTRY_PAD = 1.6;
+      const DISTRICT_PAD = 0.6;
+      /** The ground stack in cells, from theme.ts. */
+      const GROUND = {
+        water: -1.2,
+        land: 0,
+        country: { top: 0.18, bottom: -0.68 },
+        district: { top: 0.36, bottom: -0.5 },
+      };
+      const TOWER = 0.8;
+      const CAP = 0.06;
+      const LAND = L.hsl(216, 0.14, 0.075);
+      const COAST = L.hsl(206, 0.18, 0.13);
+
+      const HUES = { apps: 28, libs: 212, docs: 95, plumbing: 220 };
+      function accentOf(family, variant) {
+        const v = Math.max(0, variant);
+        if (family === 'plumbing') {
+          return {
+            hue: HUES.plumbing,
+            s: 0.04,
+            l: 0.42 + Math.floor(v / 3) * 0.06 + (v % 3) * 0.02,
+          };
+        }
+        return {
+          hue: HUES[family] + ((v % 3) - 1) * 14,
+          s: 0.3,
+          l: 0.46 + Math.floor(v / 3) * 0.1,
+        };
+      }
+      const paint = {
+        plate: (a) => L.hsl(a.hue, a.s * 0.6, 0.3),
+        platform: (a) => L.hsl(a.hue, a.s * 0.75, 0.36),
+        tower: (a) => L.hsl(a.hue, a.s, a.l),
+        cap: (a) => L.hsl(a.hue, Math.min(1, a.s * 1.5), a.l + 0.08),
+      };
+
+      /** A port of core's claimOf: the stepped ladder a continent reserves ground on. */
+      function claimOf(extent) {
+        const step = (n) => {
+          let q = L.MIN_PLATE;
+          while (q < n) q = Math.ceil(q * 1.25);
+          return q;
+        };
+        return { w: step(extent.w), h: step(extent.h) };
+      }
+
+      /**
+       * One world for a given shore. `margin` is how far the land reaches past the countries'
+       * bounding box; `floor` keeps the minimum plate on the land, which is today's rule and
+       * puts all of its slack on the far side. The lattice origin `at` is always the land's
+       * corner plus the margin, so a country never moves when the land grows around it.
+       */
+      function buildModel({ margin, floor }) {
+        const cts = LAYOUT.continents.map((ct) => {
+          const need = { w: ct.extent.w + 2 * margin, h: ct.extent.h + 2 * margin };
+          const land = floor
+            ? { w: Math.max(L.MIN_PLATE, need.w), h: Math.max(L.MIN_PLATE, need.h) }
+            : need;
+          return { repo: ct.repo, extent: ct.extent, land, claim: claimOf(land) };
+        });
+        const order = [...cts].sort(
+          (a, b) =>
+            b.claim.w * b.claim.h - a.claim.w * a.claim.h ||
+            (a.repo < b.repo ? -1 : a.repo > b.repo ? 1 : 0),
+        );
+        const rects = order.map((c) => ({ x: 0, z: 0, w: c.claim.w, h: c.claim.h }));
+        L.shelf(rects, L.CONTINENT_GAP);
+        order.forEach((c, i) => {
+          c.rect = { x: rects[i].x, z: rects[i].z, w: c.land.w, h: c.land.h };
+          c.at = { x: rects[i].x + margin, z: rects[i].z + margin };
+        });
+        const byRepo = new Map(cts.map((c) => [c.repo, c]));
+        const repoOf = (country) => country.slice(0, country.indexOf(':'));
+        const countries = LAYOUT.countries.map((c) => {
+          const ct = byRepo.get(repoOf(c.n));
+          return { ...c, ct, wx: ct.at.x + c.x, wz: ct.at.z + c.z };
+        });
+        const byCountry = new Map(countries.map((c) => [c.n, c]));
+        const districts = LAYOUT.districts.map((d) => {
+          const c = byCountry.get(d.c);
+          return { ...d, country: c, wx: c.ct.at.x + d.x, wz: c.ct.at.z + d.z };
+        });
+        const blocks = LAYOUT.blocks.map((b) => {
+          const c = byCountry.get(b.c);
+          return { ...b, country: c, wx: c.ct.at.x + b.x, wz: c.ct.at.z + b.z };
+        });
+        let over = 0;
+        for (const c of countries) {
+          const p = COUNTRY_PAD / 2;
+          const r = c.ct.rect;
+          if (
+            c.wx - p < r.x ||
+            c.wz - p < r.z ||
+            c.wx + c.w + p > r.x + r.w ||
+            c.wz + c.h + p > r.z + r.h
+          )
+            over++;
+        }
+        const bounds = cts.reduce(
+          (a, c) => ({
+            x0: Math.min(a.x0, c.rect.x),
+            z0: Math.min(a.z0, c.rect.z),
+            x1: Math.max(a.x1, c.rect.x + c.rect.w),
+            z1: Math.max(a.z1, c.rect.z + c.rect.h),
+          }),
+          { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity },
+        );
+        return {
+          continents: cts,
+          countries,
+          districts,
+          blocks,
+          over,
+          world: { x: bounds.x0, z: bounds.z0, w: bounds.x1 - bounds.x0, h: bounds.z1 - bounds.z0 },
+        };
+      }
+
+      /** A soft round shadow, the one thing that says "this is sitting on that". */
+      const shadowTexture = (() => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        g.filter = 'blur(14px)';
+        g.fillStyle = '#000';
+        g.fillRect(18, 18, 92, 92);
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      })();
+
+      const box = new THREE.BoxGeometry(1, 1, 1);
+      const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+
+      function build(cardEl, opts) {
+        const model = buildModel(opts);
+        const frame = opts.frame(model);
+        const bend = L.bender(
+          { centre: { x: frame.x + frame.w / 2, z: frame.z + frame.h / 2 } },
+          L.WORLD_RADIUS,
+        );
+        const s = L.makeStage(W, H, { fog: opts.fog ?? 0.0035 });
+        cardEl.appendChild(s.stage);
+        const controls = new OrbitControls(s.camera, s.renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.03;
+        controls.minDistance = 6;
+        controls.maxDistance = 900;
+
+        const mats = new Map();
+        const matOf = (color) => {
+          const key = color.getHex();
+          if (!mats.has(key))
+            mats.set(
+              key,
+              new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }),
+            );
+          return mats.get(key);
+        };
+        const slab = (x, z, w, h, bottom, top, color) => {
+          const cx = x + w / 2;
+          const cz = z + h / 2;
+          const m = new THREE.Mesh(box, matOf(color));
+          m.position.copy(bend.at(cx, cz, (top + bottom) / 2));
+          m.quaternion.copy(L.orientation(bend, cx, cz));
+          m.scale.set(w, top - bottom, h);
+          s.sc.add(m);
+          return m;
+        };
+        const sheet = (x, z, w, h, y, color) => {
+          const cx = x + w / 2;
+          const cz = z + h / 2;
+          const m = new THREE.Mesh(quad, matOf(color));
+          m.position.copy(bend.at(cx, cz, y));
+          m.quaternion.copy(L.orientation(bend, cx, cz));
+          m.scale.set(w, 1, h);
+          s.sc.add(m);
+          return m;
+        };
+        const shadow = (x, z, w, h, y, opacity) => {
+          const cx = x + w / 2;
+          const cz = z + h / 2;
+          const m = new THREE.Mesh(
+            quad,
+            new THREE.MeshBasicMaterial({
+              map: shadowTexture,
+              transparent: true,
+              opacity,
+              depthWrite: false,
+              color: 0x000000,
+            }),
+          );
+          m.position.copy(bend.at(cx, cz, y));
+          m.quaternion.copy(L.orientation(bend, cx, cz));
+          m.scale.set(w, 1, h);
+          m.renderOrder = 1;
+          s.sc.add(m);
+        };
+
+        const ocean = L.ocean(bend, 900, 60, 72);
+        ocean.position.y += GROUND.water + 0.35;
+        s.sc.add(ocean);
+
+        for (const ct of model.continents) {
+          const r = ct.rect;
+          if (opts.coast) {
+            slab(r.x, r.z, r.w, r.h, -0.9, GROUND.land - 0.06, LAND);
+            sheet(r.x, r.z, r.w, r.h, GROUND.land, COAST);
+            const m = opts.margin;
+            const inner = { x: r.x + m, z: r.z + m, w: ct.extent.w, h: ct.extent.h };
+            sheet(inner.x, inner.z, inner.w, inner.h, GROUND.land + 0.01, LAND);
+          } else {
+            sheet(r.x, r.z, r.w, r.h, GROUND.land, LAND);
+          }
+        }
+
+        for (const c of model.countries) {
+          const a = accentOf(c.f, c.v);
+          const p = COUNTRY_PAD / 2;
+          if (opts.shadow)
+            shadow(
+              c.wx - p - 0.5,
+              c.wz - p - 0.5,
+              c.w + 2 * p + 1,
+              c.h + 2 * p + 1,
+              GROUND.land + 0.02,
+              0.55,
+            );
+          slab(
+            c.wx - p,
+            c.wz - p,
+            c.w + 2 * p,
+            c.h + 2 * p,
+            GROUND.country.bottom,
+            GROUND.country.top,
+            paint.plate(a),
+          );
+        }
+        for (const d of model.districts) {
+          const a = accentOf(d.country.f, d.country.v);
+          const p = DISTRICT_PAD / 2;
+          if (opts.shadow)
+            shadow(
+              d.wx - p - 0.4,
+              d.wz - p - 0.4,
+              d.w + 2 * p + 0.8,
+              d.h + 2 * p + 0.8,
+              GROUND.country.top + 0.01,
+              0.5,
+            );
+          slab(
+            d.wx - p,
+            d.wz - p,
+            d.w + 2 * p,
+            d.h + 2 * p,
+            GROUND.district.bottom,
+            GROUND.district.top,
+            paint.platform(a),
+          );
+        }
+
+        const towers = new THREE.InstancedMesh(
+          box,
+          new THREE.MeshStandardMaterial({ roughness: 0.75, flatShading: true }),
+          model.blocks.length,
+        );
+        const caps = new THREE.InstancedMesh(
+          box,
+          new THREE.MeshStandardMaterial({ roughness: 0.6, flatShading: true }),
+          model.blocks.length,
+        );
+        const m4 = new THREE.Matrix4();
+        const sc = new THREE.Vector3();
+        model.blocks.forEach((b, i) => {
+          const a = accentOf(b.country.f, b.country.v);
+          const x = b.wx + 0.5;
+          const z = b.wz + 0.5;
+          const q = L.orientation(bend, x, z);
+          sc.set(TOWER, b.y, TOWER);
+          m4.compose(bend.at(x, z, GROUND.district.top + b.y / 2), q, sc);
+          towers.setMatrixAt(i, m4);
+          towers.setColorAt(i, paint.tower(a));
+          sc.set(TOWER + 0.04, CAP, TOWER + 0.04);
+          m4.compose(bend.at(x, z, GROUND.district.top + b.y + CAP / 2), q, sc);
+          caps.setMatrixAt(i, m4);
+          caps.setColorAt(i, paint.cap(a));
+        });
+        towers.instanceMatrix.needsUpdate = true;
+        caps.instanceMatrix.needsUpdate = true;
+        s.sc.add(towers);
+        s.sc.add(caps);
+
+        L.frameRect(s.camera, controls, bend, frame, opts.zoom ?? 1.15);
+        const render = () => s.renderer.render(s.sc, s.camera);
+        controls.addEventListener('change', render);
+        render();
+        s.tier.textContent = opts.tier;
+        s.ring.innerHTML = model.over
+          ? `<b style="color:#f2a0a0">${model.over}</b> of ${model.countries.length} plates over water`
+          : `<b>0</b> of ${model.countries.length} plates over water`;
+        return model;
+      }
+
+      const board = document.getElementById('board');
+      const heading = (text) => {
+        const h = document.createElement('h1');
+        h.className = 'sub';
+        h.textContent = text;
+        h.style.gridColumn = '1 / -1';
+        board.appendChild(h);
+      };
+
+      const strata = (m) => m.continents.find((c) => c.repo === 'strata').rect;
+      const scratch = (m) => {
+        const ct = m.continents.find((c) => c.repo === 'strata-scratch');
+        return ct.rect;
+      };
+      const corner = (m) => {
+        const ct = m.continents.find((c) => c.repo === 'strata');
+        return { x: ct.at.x - 5, z: ct.at.z + 20, w: 17, h: 17 };
+      };
+
+      const CARDS = [
+        ['head', 'One · how wide is the shore'],
+        [
+          'A · today, no shore at all',
+          'current',
+          'cur',
+          { margin: 0, floor: true, frame: strata, tier: 'shore 0 · floor on' },
+          `The land is exactly the countries' bounding box (<code>plateOf</code>), and every country
+           plate is drawn 0.8 cells past its rect (<code>terrain.ts</code> pad 1.6). Every country
+           that touches an edge hangs over the water, and every tier gets a positive lip except
+           this one.`,
+        ],
+        [
+          'B · 0.8, the skirt just clears',
+          'minimum',
+          'no',
+          { margin: 0.8, floor: true, frame: strata, tier: 'shore 0.8 · floor on' },
+          `Nothing hangs, and nothing else changes. The land still ends where the plate ends, so the
+           island reads as a cut-out rather than a place, and the moment a plate lags behind an
+           eased repack it is back over the water.`,
+        ],
+        [
+          'C · 2.2, shore equals the land between countries',
+          'recommended',
+          'rec',
+          { margin: 2.2, floor: true, frame: strata, tier: 'shore 2.2 · floor on' },
+          `Derived rather than chosen: <code>COUNTRY_GAP</code> less half the country pad, so the
+           visible shore is exactly the land you already see between two neighbouring countries.
+           The margins finally run outward: 0.40, 0.50, 1.40, 2.20. The scratch island is still
+           lopsided inside its floor, which is what cards E and F ask about.`,
+        ],
+        [
+          'D · 3.0, a full country gap',
+          'generous',
+          'no',
+          { margin: 3, floor: true, frame: strata, tier: 'shore 3.0 · floor on' },
+          `Reads well up close and costs six cells of world per repo. Across the sixty repos in
+           <code>~/QuartzX</code> that is a visibly wider world for water nobody looks at, and the
+           overview is the view that is hardest to fit already.`,
+        ],
+        ['head', 'Two · does the minimum plate still apply to the land'],
+        [
+          'E · floor on the land',
+          'current rule',
+          'cur',
+          { margin: 2.2, floor: true, frame: scratch, zoom: 1.25, tier: 'scratch · floor on' },
+          `The scratch repo reaches 24 by 29 cells inside a 32 by 32 floor, so all of the slack goes
+           to the right and the bottom: eight cells of empty land on one side, zero on the other.
+           The city sits in a corner of its own island. Centring it is not available: the lattice
+           origin would move and every country in the repo would move with it.`,
+        ],
+        [
+          'F · floor on the claim, land hugs the repo',
+          'recommended',
+          'rec',
+          { margin: 2.2, floor: false, frame: scratch, zoom: 1.25, tier: 'scratch · snug land' },
+          `<code>MIN_PLATE</code> moves to the claim, where it still buys a small repo its own water
+           and its own place in the world. The land itself is snug, so every island is composed at
+           every size, the lattice origin never moves inside a claim, and a small repo reads as a
+           small island. That is what size is meant to say.`,
+        ],
+        ['head', 'Three · the same edge, up close'],
+        [
+          'G · today',
+          'current',
+          'cur',
+          { margin: 0, floor: true, frame: corner, zoom: 1.1, fog: 0.006, tier: 'shore 0' },
+          `<code>kanban</code> at the bottom left corner. The plate's lower half is a lip floating
+           over water 1.2 cells below it. At this distance the countries are admitted and drawing
+           towers, which is exactly when the overhang is most visible.`,
+        ],
+        [
+          'H · shore 2.2',
+          'recommended',
+          'rec',
+          { margin: 2.2, floor: true, frame: corner, zoom: 1.1, fog: 0.006, tier: 'shore 2.2' },
+          `The containment fix on its own. Every plate is on the land, and the coast is as wide as
+           the land between two countries. This is the whole of the change that belongs in
+           <code>core</code>.`,
+        ],
+        [
+          'I · shore 2.2, coast band, contact shadow, land with a body',
+          'the treatment',
+          'rec',
+          {
+            margin: 2.2,
+            floor: true,
+            frame: corner,
+            zoom: 1.1,
+            fog: 0.006,
+            coast: true,
+            shadow: true,
+            tier: 'shore 2.2 · treated',
+          },
+          `Three additions, none of which touch the layout: a lighter band in the outer cells so the
+           coast has a value of its own, a soft shadow where each plate meets what it stands on,
+           and a wall under the land so the island has a body instead of being a sheet. The contact
+           shadow is what makes "sitting on" read at all; it would have made this bug obvious the
+           day it shipped.`,
+        ],
+      ];
+
+      for (const entry of CARDS) {
+        if (entry[0] === 'head') {
+          heading(entry[1]);
+          continue;
+        }
+        const [title, badge, cls, opts, notes] = entry;
+        const c = L.card(board, title, badge, cls, notes);
+        build(c.el, opts);
+        c.el.appendChild(c.notes);
+      }
+
+      const today = buildModel({ margin: 0, floor: true });
+      document.getElementById('facts').innerHTML = `
+        <tr><th>boundary</th><th>tower in its platform</th><th>platform on its plate</th>
+            <th>plate to plate, across a country gap</th><th>plate to the shore</th></tr>
+        <tr><td>visible margin, cells</td><td>0.40</td><td>0.50</td><td>1.40</td>
+            <td class="bad">-0.80</td></tr>
+        <tr><th>live layout</th><th>repos</th><th>countries</th><th>folders</th><th>files</th></tr>
+        <tr><td>dumped 2026-08-31</td><td>${LAYOUT.continents.length}</td>
+            <td>${LAYOUT.countries.length}</td><td>${LAYOUT.districts.length}</td>
+            <td>${LAYOUT.blocks.length}</td></tr>
+        <tr><th>today</th><th colspan="4">${today.over} of ${today.countries.length} country plates are drawn over the water</th></tr>`;
+    </script>
+  </body>
+</html>

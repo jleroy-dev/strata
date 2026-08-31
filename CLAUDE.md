@@ -4,7 +4,9 @@ Strata is an abstract, live 3D view of a codebase: terrain from the repo, weathe
 agents working on it. Read before touching anything:
 
 1. `docs/DESIGN.md`: the visual grammar and what the thing is not.
-2. `docs/ENGINEERING_NOTES.md`: package shape, the five laws, feeds, working agreements.
+2. `docs/ENGINEERING_NOTES.md`: start at **How to read this**, which says which of these
+   decisions are pinned and which change when evidence contradicts them, then package shape, the
+   eight laws, feeds, working agreements, and section 6 for what has already been overturned.
 3. `kanban/`: the board. `review/` means implementation complete and awaiting Julien.
 
 ## Shape
@@ -12,9 +14,13 @@ agents working on it. Read before touching anything:
 npm workspaces, four packages: `core` (pure, tested), `server` (the only package that touches
 disk), `web` (Vite + three, reads one event stream), `vscode` (milestone two, draws nothing).
 
+The map is one world with a slight curvature: continent = repo, country = project, district =
+folder, block = file. There is no tier above the world and nothing below the continent changed
+when it arrived.
+
 ## Commands
 
-- `npm run dev:server -- <repo path>` then `npm run dev`: server on 4747, web on 4746.
+- `npm run dev:server -- <repo path>...` then `npm run dev`: server on 4747, web on 4746.
 - `npm run gate`: typecheck + lint + format check + test. Run it before calling work green.
 - `npm run test:watch` while working in `core`.
 
@@ -25,6 +31,9 @@ disk), `web` (Vite + three, reads one event stream), `vscode` (milestone two, dr
 - Visual decisions go through a mockup in `docs/mockups/` and a recommendation; wait for the
   pick. Mockups are named `YYYY-MM-DD-HHMM-<name>.html`, the time being their creation.
 - Layout lives in `core` and is pinned by a spec. A component that computes layout is a bug.
+- `web` draws and does not decide: pure logic goes to `core` or a `three`-free module with a spec.
 - `web` never touches git or the file system.
+- Strata never writes inside a repo it watches. The file actions take a `Scratch`, which only
+  `seedScratch` and `cloneScratch` mint.
 - Do the work in the main loop; no sub-agents unless asked.
 - Commit messages follow `COMMIT.md`; the `/strata-commit` command applies it.

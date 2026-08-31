@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Block } from './events.js';
 import { FIXTURE_FILES } from './fixtures/repo.js';
+import { REPO, at } from './fixtures/ids.js';
+import { pathOf, repoOfName, type BlockId } from './qualified.js';
 import { placeBlocks } from './hierarchy.js';
+import { FAMILIES, familyRank } from './family.js';
 import {
   COUNTRY_GAP,
   DISTRICT_GAP,
@@ -11,6 +14,7 @@ import {
   layoutOf,
   parseLayout,
   serializeLayout,
+  type CountryPlate,
   type Layout,
   type SerializedLayout,
 } from './layout.js';
@@ -18,27 +22,34 @@ import { apart, type Rect } from './shelf.js';
 
 const fixture = (): Block[] =>
   placeBlocks(
+    REPO,
     FIXTURE_FILES.map(([id]) => id),
     new Map(FIXTURE_FILES),
   );
 
 const base = layoutOf(fixture());
 
-const block = (id: string, size = 1000): Block =>
-  placeBlocks([id, ...FIXTURE_FILES.map(([f]) => f)], new Map([[id, size]])).find(
-    (b) => b.id === id,
+const block = (path: string, size = 1000): Block =>
+  placeBlocks(REPO, [path, ...FIXTURE_FILES.map(([f]) => f)], new Map([[path, size]])).find(
+    (b) => b.id === at(path),
   )!;
 
-const cellsOf = (layout: Layout): Map<string, string> =>
+const cellsOf = (layout: Layout): Map<BlockId, string> =>
   new Map([...layout.blocks].map(([id, p]) => [id, `${String(p.cell.x)},${String(p.cell.z)}`]));
 
-const unchangedExcept = (before: Layout, after: Layout, except: readonly string[]): string[] =>
+const unchangedExcept = (before: Layout, after: Layout, except: readonly BlockId[]): BlockId[] =>
   [...cellsOf(before)]
     .filter(([id, cell]) => !except.includes(id) && cellsOf(after).get(id) !== cell)
     .map(([id]) => id);
 
 const pairwiseApart = (rects: readonly Rect[], gap: number): boolean =>
   rects.every((a, i) => rects.every((b, j) => i === j || apart(a, b, gap)));
+
+const byContinent = (layout: Layout): CountryPlate[][] =>
+  layout.continents.map((ct) => layout.countries.filter((c) => repoOfName(c.country) === ct.repo));
+
+const continentsApart = (layout: Layout): boolean =>
+  byContinent(layout).every((plates) => pairwiseApart(plates, COUNTRY_GAP));
 
 describe('layoutOf', () => {
   it('is pinned by the fixture snapshot', async () => {
@@ -52,10 +63,10 @@ describe('layoutOf', () => {
     expect(serializeLayout(layoutOf(shuffled))).toEqual(serializeLayout(base));
   });
 
-  it('places every block on its own cell inside its district', () => {
+  it('places every block on its own cell of its continent, inside its district', () => {
     const seen = new Set<string>();
     for (const [, p] of base.blocks) {
-      const key = `${String(p.cell.x)},${String(p.cell.z)}`;
+      const key = `${repoOfName(p.country)}:${String(p.cell.x)},${String(p.cell.z)}`;
       expect(seen.has(key)).toBe(false);
       seen.add(key);
       const d = base.districts.find((r) => r.country === p.country && r.district === p.district)!;
@@ -75,7 +86,40 @@ describe('layoutOf', () => {
         ),
       ).toBe(true);
     }
-    expect(pairwiseApart(base.countries, COUNTRY_GAP)).toBe(true);
+    expect(continentsApart(base)).toBe(true);
+  });
+
+  it('gives a repo one continent that spans its countries', () => {
+    expect(base.continents.map((c) => c.repo)).toEqual([REPO]);
+    for (const [ct, plates] of base.continents.map((c, i) => [c, byContinent(base)[i]!] as const)) {
+      expect(plates.length).toBeGreaterThan(0);
+      expect(Math.max(...plates.map((p) => p.x + p.w))).toBe(ct.extent.w);
+      expect(Math.max(...plates.map((p) => p.z + p.h))).toBe(ct.extent.h);
+      expect(ct.claim.w).toBeGreaterThanOrEqual(ct.extent.w);
+      expect(ct.claim.h).toBeGreaterThanOrEqual(ct.extent.h);
+    }
+    expect(base.world).toEqual(base.continents[0]!.claim);
+  });
+
+  it('packs a continent by family, so hue and place say the same thing', () => {
+    const rank = new Map(FAMILIES.map((f) => [f, familyRank(f)]));
+    const rows = [...base.countries].sort((a, b) => a.z - b.z || a.x - b.x);
+    const seen = rows.map((c) => rank.get(c.family)!);
+    expect(Math.min(...seen)).toBe(seen[0]);
+    expect(Math.max(...seen)).toBe(seen[seen.length - 1]);
+  });
+
+  it('never shrinks a continent, so growth at an edge moves no country', () => {
+    let layout = base;
+    for (let i = 0; i < 30; i++) {
+      const added = block(`apps/api/src/app/rooms/handler-${String(i)}.ts`);
+      layout = applyTerrain(layout, { kind: 'block.added', block: added }).layout;
+    }
+    const after = layout.continents.find((c) => c.repo === REPO)!;
+    const before = base.continents.find((c) => c.repo === REPO)!;
+    expect(after.at).toEqual(before.at);
+    expect(after.extent.w).toBeGreaterThanOrEqual(before.extent.w);
+    expect(after.extent.h).toBeGreaterThanOrEqual(before.extent.h);
   });
 
   it('gives every district about 20% slack', () => {
@@ -87,20 +131,23 @@ describe('layoutOf', () => {
     }
   });
 
-  it('aims for a square', () => {
-    const aspect = base.extent.w / base.extent.h;
-    expect(aspect).toBeGreaterThan(0.8);
-    expect(aspect).toBeLessThan(1.25);
+  it('aims each continent at a square', () => {
+    for (const [i, ct] of base.continents.entries()) {
+      if (byContinent(base)[i]!.length < 3) continue;
+      const aspect = ct.extent.w / ct.extent.h;
+      expect(aspect).toBeGreaterThan(0.8);
+      expect(aspect).toBeLessThan(1.25);
+    }
   });
 
-  it('packs countries by family first', () => {
+  it('lists countries by family first', () => {
     const ranks = base.countries.map((c) => ['apps', 'libs', 'docs', 'plumbing'].indexOf(c.family));
     expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
   });
 
   it('gives a binary the slab and text its size', () => {
-    const slab = base.blocks.get('apps/web/src/assets/fonts/inter.woff2')!;
-    const text = base.blocks.get('libs/story/engine/src/lib/engine.ts')!;
+    const slab = base.blocks.get(at('apps/web/src/assets/fonts/inter.woff2'))!;
+    const text = base.blocks.get(at('libs/story/engine/src/lib/engine.ts'))!;
     expect(slab.binary).toBe(true);
     expect(slab.height).toBeLessThan(text.height);
   });
@@ -123,7 +170,7 @@ describe('applyTerrain', () => {
   });
 
   it('takes the first free cell, so an arrival after a removal fills the hole', () => {
-    const gone = 'libs/shared/ui/src/lib/dialog/dialog.service.ts';
+    const gone = at('libs/shared/ui/src/lib/dialog/dialog.service.ts');
     const hole = base.blocks.get(gone)!.cell;
     const removed = applyTerrain(base, { kind: 'block.removed', id: gone }).layout;
     expect(removed.blocks.has(gone)).toBe(false);
@@ -135,7 +182,7 @@ describe('applyTerrain', () => {
   });
 
   it('keeps the cell on a rename in place', () => {
-    const from = 'apps/api/src/app/rooms/rooms.service.ts';
+    const from = at('apps/api/src/app/rooms/rooms.service.ts');
     const renamed = block('apps/api/src/app/rooms/room.service.ts', 5200);
     const { layout, placement, repack } = applyTerrain(base, {
       kind: 'block.moved',
@@ -165,10 +212,10 @@ describe('applyTerrain', () => {
     }
     expect(repacked).toBeGreaterThan(0);
     const before = base.districts.find(
-      (d) => d.country === 'libs/shared/models' && d.district === 'src/lib',
+      (d) => d.country === at('libs/shared/models') && d.district === 'src/lib',
     )!;
     const after = layout.districts.find(
-      (d) => d.country === 'libs/shared/models' && d.district === 'src/lib',
+      (d) => d.country === at('libs/shared/models') && d.district === 'src/lib',
     )!;
     expect(after.w * after.h).toBeGreaterThan(before.w * before.h);
     expect([after.x, after.z]).toEqual([before.x, before.z]);
@@ -192,10 +239,12 @@ describe('applyTerrain', () => {
         ),
       ).toBe(true);
     }
-    expect(pairwiseApart(layout.countries, COUNTRY_GAP)).toBe(true);
-    const untouched = layout.countries.filter((c) => c.country !== 'apps/api');
-    expect(untouched).toEqual(base.countries.filter((c) => c.country !== 'apps/api'));
-    const outside = [...base.blocks].filter(([, p]) => p.country !== 'apps/api').map(([id]) => id);
+    expect(continentsApart(layout)).toBe(true);
+    const untouched = layout.countries.filter((c) => c.country !== at('apps/api'));
+    expect(untouched).toEqual(base.countries.filter((c) => c.country !== at('apps/api')));
+    const outside = [...base.blocks]
+      .filter(([, p]) => p.country !== at('apps/api'))
+      .map(([id]) => id);
     const moved = unchangedExcept(base, layout, []).filter((id) => outside.includes(id));
     expect(moved).toEqual([]);
   });
@@ -205,55 +254,56 @@ describe('applyTerrain', () => {
     const one = applyTerrain(base, { kind: 'block.added', block: inCountry });
     expect(['district', 'country']).toContain(one.repack?.scope);
     const inside = [...base.blocks]
-      .filter(([, p]) => p.country === 'libs/shared/utils')
+      .filter(([, p]) => p.country === at('libs/shared/utils'))
       .map(([id]) => id);
     expect(unchangedExcept(base, one.layout, [inCountry.id, ...inside])).toEqual([]);
-    expect(one.layout.countries.filter((c) => c.country !== 'libs/shared/utils')).toEqual(
-      base.countries.filter((c) => c.country !== 'libs/shared/utils'),
+    expect(one.layout.countries.filter((c) => c.country !== at('libs/shared/utils'))).toEqual(
+      base.countries.filter((c) => c.country !== at('libs/shared/utils')),
     );
 
     const newCountry = block('libs/story/player/package.json', 600);
     const two = applyTerrain(one.layout, { kind: 'block.added', block: newCountry });
     expect(two.repack?.scope).toBe('map');
     expect(unchangedExcept(one.layout, two.layout, [newCountry.id])).toEqual([]);
-    expect(pairwiseApart(two.layout.countries, COUNTRY_GAP)).toBe(true);
+    expect(continentsApart(two.layout)).toBe(true);
+    expect(two.layout.continents.map((c) => c.at)).toEqual(one.layout.continents.map((c) => c.at));
     expect(
-      two.layout.countries.find((c) => c.country === 'libs/story/player')?.variant,
+      two.layout.countries.find((c) => c.country === at('libs/story/player'))?.variant,
     ).toBeGreaterThanOrEqual(0);
   });
 
   it('leaves the others where they were when a country is removed', () => {
     let layout = base;
-    const ids = [...base.blocks].filter(([, p]) => p.country === 'apps/web').map(([id]) => id);
+    const ids = [...base.blocks].filter(([, p]) => p.country === at('apps/web')).map(([id]) => id);
     for (const id of ids) layout = applyTerrain(layout, { kind: 'block.removed', id }).layout;
     expect(unchangedExcept(base, layout, ids)).toEqual([]);
-    expect(layout.countries).toEqual(base.countries.filter((c) => c.country !== 'apps/web'));
-    expect(layout.districts.some((d) => d.country === 'apps/web')).toBe(false);
-    expect(layout.extent).toEqual(base.extent);
+    expect(layout.countries).toEqual(base.countries.filter((c) => c.country !== at('apps/web')));
+    expect(layout.districts.some((d) => d.country === at('apps/web'))).toBe(false);
+    expect(layout.continents).toEqual(base.continents);
   });
 
   it('drops a district once its last block has moved away', () => {
     const ids = [...base.blocks]
-      .filter(([, p]) => p.country === 'libs/shared/models' && p.district === 'src/lib')
+      .filter(([, p]) => p.country === at('libs/shared/models') && p.district === 'src/lib')
       .map(([id]) => id);
     let layout = base;
     for (const id of ids) {
-      const to = block(id.replace('src/lib/', 'src/model/'));
+      const to = block(pathOf(id).replace('src/lib/', 'src/model/'));
       layout = applyTerrain(layout, { kind: 'block.moved', from: id, block: to }).layout;
     }
     const gone = layout.districts.some(
-      (d) => d.country === 'libs/shared/models' && d.district === 'src/lib',
+      (d) => d.country === at('libs/shared/models') && d.district === 'src/lib',
     );
     expect(gone).toBe(false);
     expect(
       layout.districts.some(
-        (d) => d.country === 'libs/shared/models' && d.district === 'src/model',
+        (d) => d.country === at('libs/shared/models') && d.district === 'src/model',
       ),
     ).toBe(true);
   });
 
   it('shrinks a plate to its remaining platforms when districts leave', () => {
-    const country = 'apps/api';
+    const country = at('apps/api');
     const keep = base.districts
       .filter((d) => d.country === country)
       .sort((a, b) => a.w * a.h - b.w * b.h)[0]!;
@@ -275,19 +325,21 @@ describe('applyTerrain', () => {
     const arriving = block('apps/api/src/app/rooms/handlers/create.ts');
     const { layout, repack } = applyTerrain(base, { kind: 'block.added', block: arriving });
     expect(repack?.scope === 'country' || repack?.scope === 'district').toBe(true);
-    const plate = layout.countries.find((c) => c.country === 'apps/api')!;
-    const ds = layout.districts.filter((d) => d.country === 'apps/api');
+    const plate = layout.countries.find((c) => c.country === at('apps/api'))!;
+    const ds = layout.districts.filter((d) => d.country === at('apps/api'));
     expect(pairwiseApart(ds, DISTRICT_GAP)).toBe(true);
     expect(Math.max(...ds.map((d) => d.x + d.w))).toBe(plate.x + plate.w);
-    expect(layout.countries.filter((c) => c.country !== 'apps/api')).toEqual(
-      base.countries.filter((c) => c.country !== 'apps/api'),
+    expect(layout.countries.filter((c) => c.country !== at('apps/api'))).toEqual(
+      base.countries.filter((c) => c.country !== at('apps/api')),
     );
-    const outside = [...base.blocks].filter(([, p]) => p.country !== 'apps/api').map(([id]) => id);
+    const outside = [...base.blocks]
+      .filter(([, p]) => p.country !== at('apps/api'))
+      .map(([id]) => id);
     expect(unchangedExcept(base, layout, []).filter((id) => outside.includes(id))).toEqual([]);
   });
 
   it('closes the rows when a platform leaves', () => {
-    const country = 'apps/api';
+    const country = at('apps/api');
     const plate = base.countries.find((c) => c.country === country)!;
     const ds = base.districts.filter((d) => d.country === country);
     const leaving = ds.find((d) => d.x > plate.x && d.x + d.w < plate.x + plate.w) ?? ds[0]!;
@@ -308,7 +360,7 @@ describe('applyTerrain', () => {
   });
 
   it('changes only the height on block.changed', () => {
-    const id = 'docs/NOTES.md';
+    const id = at('docs/NOTES.md');
     const { layout } = applyTerrain(base, { kind: 'block.changed', id, size: 60000 });
     expect(layout.blocks.get(id)!.height).toBeGreaterThan(base.blocks.get(id)!.height);
     expect(unchangedExcept(base, layout, [])).toEqual([]);
@@ -317,10 +369,10 @@ describe('applyTerrain', () => {
 
 describe('layoutFrom', () => {
   it('keeps surviving cells when replaying a new listing over a previous layout', () => {
-    const files = fixture().filter((b) => b.id !== 'docs/NOTES.md');
+    const files = fixture().filter((b) => b.id !== at('docs/NOTES.md'));
     files.push(block('docs/ROADMAP.md', 3000));
     const layout = layoutFrom(files, base);
-    expect(unchangedExcept(base, layout, ['docs/NOTES.md'])).toEqual([]);
-    expect(layout.blocks.has('docs/ROADMAP.md')).toBe(true);
+    expect(unchangedExcept(base, layout, [at('docs/NOTES.md')])).toEqual([]);
+    expect(layout.blocks.has(at('docs/ROADMAP.md'))).toBe(true);
   });
 });

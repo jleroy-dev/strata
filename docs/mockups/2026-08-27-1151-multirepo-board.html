@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · multirepo board</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b0d12;
+        color: #c9cfdb;
+        font:
+          13px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      h1 {
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin: 18px 20px 6px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+      p.lead {
+        margin: 0 20px 14px;
+        max-width: 900px;
+        color: #8a94ab;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+        gap: 16px;
+        padding: 0 20px 30px;
+      }
+      .card {
+        background: #12151c;
+        border: 1px solid #1c2130;
+        border-radius: 4px;
+        overflow: hidden;
+        position: relative;
+      }
+      .card h2 {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0;
+        padding: 8px 12px;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #1c2130;
+      }
+      .card h2 .rec {
+        color: #b8e6a8;
+      }
+      .card h2 .cur {
+        color: #7fb3ff;
+      }
+      .card h2 .no {
+        color: #f2c14e;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 300px;
+      }
+      .notes {
+        padding: 10px 12px 12px;
+        color: #9aa5bd;
+      }
+      .notes b {
+        color: #dfe6f5;
+      }
+      .stage {
+        position: relative;
+      }
+      .dock {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .chip {
+        width: 74px;
+        padding: 5px 6px;
+        border: 1px solid #232a3b;
+        border-radius: 3px;
+        background: rgba(10, 12, 18, 0.72);
+        font-size: 10px;
+        line-height: 1.25;
+        color: #7d879e;
+      }
+      .chip.active {
+        border-color: #3d5680;
+        color: #dfe6f5;
+        background: rgba(24, 34, 54, 0.85);
+      }
+      .chip .dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-right: 4px;
+        vertical-align: middle;
+      }
+      .tier {
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6f7b94;
+      }
+      .roster {
+        position: absolute;
+        left: 10px;
+        top: 8px;
+        font-size: 10px;
+        line-height: 1.6;
+        color: #9aa5bd;
+      }
+      .roster .dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Multirepo · four ways to hold more than one repo</h1>
+    <p class="lead">
+      Same four repos in every card, same seed, same family palette: QuartzX.Web2 (large),
+      QuartzX.IAM, QuartzX.IQ, QuartzX.Lookups. Two agents are live, one on Web2 and one on Lookups,
+      and one import crosses from Web2 into Lookups. Drag a card to orbit it. Card B moves its own
+      camera on a loop to show the tier change; the others are still.
+    </p>
+    <div class="board" id="board"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      const hsl = (h, s, l) => new THREE.Color().setHSL(h / 360, s, l);
+
+      const FAMILY = {
+        apps: { h: 28, s: 0.5 },
+        libs: { h: 212, s: 0.4 },
+        docs: { h: 140, s: 0.34 },
+        plumb: { h: 220, s: 0.07 },
+      };
+
+      // [family, districts across, districts deep]
+      const REPOS = [
+        {
+          name: 'QuartzX.Web2',
+          countries: [
+            ['apps', 3, 2],
+            ['apps', 2, 2],
+            ['libs', 4, 3],
+            ['libs', 3, 2],
+            ['plumb', 2, 1],
+          ],
+        },
+        {
+          name: 'QuartzX.IAM',
+          countries: [
+            ['apps', 2, 1],
+            ['libs', 3, 3],
+            ['plumb', 1, 2],
+          ],
+        },
+        {
+          name: 'QuartzX.IQ',
+          countries: [
+            ['apps', 2, 2],
+            ['libs', 3, 2],
+            ['docs', 1, 1],
+          ],
+        },
+        {
+          name: 'QuartzX.Lookups',
+          countries: [
+            ['libs', 2, 2],
+            ['plumb', 1, 1],
+          ],
+        },
+      ];
+
+      const SIDE = 3; // towers along a district edge
+      const D_PITCH = SIDE + 1; // district plus its street
+      const C_GAP = 3; // avenue between countries
+      const R_GAP = 13; // the new tier: the water between repos
+      const AGENT_A = hsl(175, 1, 0.62);
+      const AGENT_B = hsl(305, 0.9, 0.66);
+
+      const rngOf = (s) => () => (s = (s * 16807) % 2147483647) / 2147483647;
+
+      /** Shelf-packs a repo's countries towards a square and returns towers, plates, extent. */
+      function buildRepo(spec, seed) {
+        const rnd = rngOf(seed);
+        const sized = spec.countries.map(([family, cx, cz]) => ({
+          family,
+          w: cx * D_PITCH - 1,
+          d: cz * D_PITCH - 1,
+          cx,
+          cz,
+        }));
+        const target = Math.sqrt(sized.reduce((a, c) => a + (c.w + C_GAP) * (c.d + C_GAP), 0));
+        const rows = [];
+        let row = { w: 0, d: 0, items: [] };
+        for (const c of sized) {
+          if (row.items.length && row.w + c.w > target) {
+            rows.push(row);
+            row = { w: 0, d: 0, items: [] };
+          }
+          c.x = row.w;
+          row.w += c.w + C_GAP;
+          row.d = Math.max(row.d, c.d);
+          row.items.push(c);
+        }
+        if (row.items.length) rows.push(row);
+
+        let z = 0;
+        const countries = [];
+        const towers = [];
+        for (const r of rows) {
+          for (const c of r.items) {
+            c.z = z;
+            countries.push(c);
+            for (let dz = 0; dz < c.cz; dz++) {
+              for (let dx = 0; dx < c.cx; dx++) {
+                for (let tz = 0; tz < SIDE; tz++) {
+                  for (let tx = 0; tx < SIDE; tx++) {
+                    if (rnd() < 0.12) continue; // slack, so districts are not solid
+                    towers.push({
+                      x: c.x + dx * D_PITCH + tx,
+                      z: c.z + dz * D_PITCH + tz,
+                      h: 0.5 + rnd() * rnd() * 5,
+                      family: c.family,
+                    });
+                  }
+                }
+              }
+            }
+          }
+          z += r.d + C_GAP;
+        }
+        const w = Math.max(...rows.map((r) => r.w)) - C_GAP;
+        const d = z - C_GAP;
+        return { name: spec.name, countries, towers, w, d };
+      }
+
+      const built = REPOS.map((r, i) => buildRepo(r, 7 + i * 31));
+
+      /** Lays repos out left to right on one ground plane. */
+      function place(gap) {
+        let x = 0;
+        const out = [];
+        for (const r of built) {
+          out.push({ ...r, ox: x, oz: 0 });
+          x += r.w + gap;
+        }
+        const w = x - gap;
+        const d = Math.max(...built.map((r) => r.d));
+        return { repos: out, w, d };
+      }
+
+      function label(text, color = '#dfe6f5', size = 44) {
+        const c = document.createElement('canvas');
+        const ctx = c.getContext('2d');
+        ctx.font = `600 ${size}px ui-monospace, Menlo, monospace`;
+        c.width = Math.ceil(ctx.measureText(text).width) + 24;
+        c.height = size * 1.6;
+        const g = c.getContext('2d');
+        g.font = `600 ${size}px ui-monospace, Menlo, monospace`;
+        g.fillStyle = color;
+        g.textBaseline = 'middle';
+        g.fillText(text, 12, c.height / 2);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }),
+        );
+        sprite.userData.aspect = c.width / c.height;
+        return sprite;
+      }
+
+      function beacon(color) {
+        const s = new THREE.Sprite(
+          new THREE.SpriteMaterial({ color, transparent: true, opacity: 0.95, depthTest: false }),
+        );
+        s.scale.setScalar(0.9);
+        return s;
+      }
+
+      function makeStage(card, height = 300) {
+        const stage = document.createElement('div');
+        stage.className = 'stage';
+        const canvas = document.createElement('canvas');
+        stage.appendChild(canvas);
+        card.appendChild(stage);
+        const W = 440;
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.setSize(W, height, false);
+        renderer.toneMapping = THREE.AgXToneMapping;
+        renderer.toneMappingExposure = 0.95;
+        const sc = new THREE.Scene();
+        sc.background = new THREE.Color(0x0a0c11);
+        sc.fog = new THREE.Fog(0x0a0c11, 60, 260);
+        sc.add(new THREE.HemisphereLight(0x9fb0cc, 0x3a3230, 0.75));
+        const key = new THREE.DirectionalLight(0xffd9b0, 1.5);
+        key.position.set(-8, 14, 6);
+        sc.add(key);
+        const camera = new THREE.PerspectiveCamera(30, W / height, 0.5, 600);
+        return { stage, canvas, renderer, sc, camera, W, H: height };
+      }
+
+      /** Camera at the Overview angle framing a box of the given span. */
+      function frame(camera, controls, cx, cz, span) {
+        const elev = THREE.MathUtils.degToRad(38);
+        const yaw = THREE.MathUtils.degToRad(15);
+        const dist = span * 1.15;
+        const target = new THREE.Vector3(cx, 0, cz);
+        camera.position
+          .set(Math.sin(yaw) * Math.cos(elev), Math.sin(elev), Math.cos(yaw) * Math.cos(elev))
+          .multiplyScalar(dist)
+          .add(target);
+        camera.lookAt(target);
+        if (controls) controls.target.copy(target);
+        return { target, dist };
+      }
+
+      /** Adds ground plates and one instanced tower mesh for a placed set of repos. */
+      function addWorld(sc, placed, opts = {}) {
+        const { plateY = 0, showTowers = true, tint = null } = opts;
+        const towerGeo = new THREE.BoxGeometry(0.8, 1, 0.8);
+        const all = [];
+        for (const r of placed.repos) for (const t of r.towers) all.push({ ...t, r });
+        // transparent from the start: card B fades this mesh out and toggling the flag
+        // at runtime would recompile the shader mid-loop
+        const mat = new THREE.MeshStandardMaterial({ flatShading: true, transparent: true });
+        const mesh = new THREE.InstancedMesh(towerGeo, mat, all.length);
+        const m = new THREE.Matrix4();
+        const col = new THREE.Color();
+        all.forEach((t, i) => {
+          m.makeScale(1, t.h, 1);
+          m.setPosition(t.r.ox + t.x, plateY + t.h / 2, t.r.oz + t.z);
+          mesh.setMatrixAt(i, m);
+          const f = FAMILY[t.family];
+          col.copy(tint ? tint(t) : hsl(f.h, f.s, 0.34 + (t.h / 6) * 0.18));
+          mesh.setColorAt(i, col);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.visible = showTowers;
+        sc.add(mesh);
+
+        const plates = new THREE.Group();
+        for (const r of placed.repos) {
+          for (const c of r.countries) {
+            const f = FAMILY[c.family];
+            const p = new THREE.Mesh(
+              new THREE.BoxGeometry(c.w + 1.4, 0.3, c.d + 1.4),
+              new THREE.MeshStandardMaterial({
+                color: tint ? tint({ family: c.family, r }) : hsl(f.h, f.s * 0.7, 0.16),
+                flatShading: true,
+              }),
+            );
+            p.position.set(r.ox + c.x + (c.w - 1) / 2, plateY - 0.15, r.oz + c.z + (c.d - 1) / 2);
+            plates.add(p);
+          }
+        }
+        sc.add(plates);
+        return { mesh, plates, all };
+      }
+
+      const board = document.getElementById('board');
+      function card(title, badge, badgeClass, notesHtml) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        const h = document.createElement('h2');
+        h.innerHTML = `<span>${title}</span><span class="${badgeClass}">${badge}</span>`;
+        el.appendChild(h);
+        board.appendChild(el);
+        const notes = document.createElement('div');
+        notes.className = 'notes';
+        notes.innerHTML = notesHtml;
+        el.appendChild(notes);
+        return { el, notes };
+      }
+
+      const loops = [];
+      function run() {
+        for (const fn of loops) fn(performance.now() / 1000);
+        requestAnimationFrame(run);
+      }
+
+      /** Keeps a sprite at a constant pixel size regardless of camera distance. */
+      function pin(sprite, camera, px, H) {
+        const d = camera.position.distanceTo(sprite.position);
+        const vFov = THREE.MathUtils.degToRad(camera.fov);
+        const worldPerPx = (2 * Math.tan(vFov / 2) * d) / H;
+        const s = px * worldPerPx;
+        const a = sprite.userData.aspect ?? 1;
+        sprite.scale.set(s * a, s, 1);
+      }
+
+      // ---------------------------------------------------------------- card A
+      {
+        const c = card(
+          'A · Archipelago',
+          'geometry',
+          'cur',
+          `Repos are landmasses on one ground plane, separated by a gap wider than any avenue:
+           the third step of <b>distance = hierarchy</b>, after streets and avenues. Colour is
+           untouched, so families still read across every repo. The cross-repo import from Web2
+           into Lookups is a <b>causeway</b>, drawn on selection like any other road. An agent
+           moving between repos is one continuous trip.
+           <br /><br /><b>The cost:</b> Overview has to frame everything. At four repos in a side
+           panel a tower is already about two pixels. This card is the geometry, not the read.`,
+        );
+        const { stage, renderer, sc, camera, H } = makeStage(c.el);
+        c.el.insertBefore(stage, c.notes);
+        const placed = place(R_GAP);
+        addWorld(sc, placed);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.1;
+        frame(camera, controls, placed.w / 2, placed.d / 2, placed.w * 0.72);
+
+        for (const r of placed.repos) {
+          const l = label(r.name, '#8ea0c0', 40);
+          l.position.set(r.ox + r.w / 2, 7, r.oz + r.d + 2.5);
+          sc.add(l);
+        }
+        const web2 = placed.repos[0];
+        const look = placed.repos[3];
+        const a = beacon(AGENT_A);
+        a.position.set(web2.ox + 6, 6.5, web2.oz + 5);
+        sc.add(a);
+        const b = beacon(AGENT_B);
+        b.position.set(look.ox + 3, 5.5, look.oz + 4);
+        sc.add(b);
+
+        // the causeway: one road leaving the repo it belongs to
+        const path = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(web2.ox + 6, 0.25, web2.oz + 5),
+            new THREE.Vector3(web2.ox + web2.w + 2, 0.25, web2.oz + 5),
+            new THREE.Vector3(look.ox - 2, 0.25, look.oz + 4),
+            new THREE.Vector3(look.ox + 3, 0.25, look.oz + 4),
+          ]),
+          new THREE.LineBasicMaterial({ color: 0x4a7fd0, transparent: true, opacity: 0.75 }),
+        );
+        sc.add(path);
+
+        const tier = document.createElement('div');
+        tier.className = 'tier';
+        tier.textContent = 'overview · 4 repos';
+        stage.appendChild(tier);
+
+        loops.push((t) => {
+          controls.update();
+          a.material.opacity = 0.7 + Math.sin(t * 2.4) * 0.25;
+          b.material.opacity = 0.7 + Math.sin(t * 2.4 + 1.1) * 0.25;
+          pin(a, camera, 9, H);
+          pin(b, camera, 9, H);
+          for (const o of sc.children) if (o.isSprite && o.userData.aspect) pin(o, camera, 11, H);
+          renderer.render(sc, camera);
+        });
+      }
+
+      // ---------------------------------------------------------------- card B
+      {
+        const c = card(
+          'B · Archipelago + strategic zoom',
+          'recommended',
+          'rec',
+          `Card A's geometry, with the representation changing on the way in, the way Supreme
+           Commander's strategic zoom does. <b>Far:</b> a repo is one lit slab, its name, and its
+           agents pinned above it, so the portfolio answers "where are the agents right now" in
+           one glance. <b>Near:</b> towers, districts, the map you have today, unchanged.
+           <br /><br />It is not a fourth camera mode. It is one continuous space where altitude
+           decides detail, so <code>C</code> and <code>Home</code> keep meaning what they mean.`,
+        );
+        const { stage, renderer, sc, camera, H } = makeStage(c.el);
+        c.el.insertBefore(stage, c.notes);
+        const placed = place(R_GAP);
+        const world = addWorld(sc, placed);
+
+        // the far tier: one slab per repo, standing in for its towers
+        const slabs = [];
+        for (const r of placed.repos) {
+          const slab = new THREE.Mesh(
+            new THREE.BoxGeometry(r.w + 2, 1.1, r.d + 2),
+            new THREE.MeshStandardMaterial({
+              color: hsl(212, 0.3, 0.3),
+              emissive: hsl(205, 0.6, 0.1),
+              transparent: true,
+              flatShading: true,
+            }),
+          );
+          slab.position.set(r.ox + (r.w - 1) / 2, 0.55, r.oz + (r.d - 1) / 2);
+          sc.add(slab);
+          const l = label(r.name, '#cfe0ff', 40);
+          l.position.set(r.ox + r.w / 2, 4, r.oz + r.d / 2);
+          sc.add(l);
+          slabs.push({ slab, l });
+        }
+
+        const web2 = placed.repos[0];
+        const look = placed.repos[3];
+        const a = beacon(AGENT_A);
+        const b = beacon(AGENT_B);
+        sc.add(a, b);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.1;
+        const far = placed.w * 0.78;
+        const near = web2.w * 1.25;
+        frame(camera, controls, placed.w / 2, placed.d / 2, far);
+
+        const tier = document.createElement('div');
+        tier.className = 'tier';
+        stage.appendChild(tier);
+
+        const elev = THREE.MathUtils.degToRad(38);
+        const yaw = THREE.MathUtils.degToRad(15);
+        loops.push((t) => {
+          // ease between the two tiers so the threshold is visible, not a cut
+          const k = (Math.sin(t * 0.42) + 1) / 2;
+          const e = k * k * (3 - 2 * k);
+          const dist = near + (far - near) * e;
+          const cx = web2.ox + web2.w / 2 + (placed.w / 2 - (web2.ox + web2.w / 2)) * e;
+          const cz = placed.d / 2;
+          const target = new THREE.Vector3(cx, 0, cz);
+          camera.position
+            .set(Math.sin(yaw) * Math.cos(elev), Math.sin(elev), Math.cos(yaw) * Math.cos(elev))
+            .multiplyScalar(dist)
+            .add(target);
+          camera.lookAt(target);
+
+          // one threshold, crossfaded over a band so nothing pops
+          const far01 = THREE.MathUtils.smoothstep(dist, near * 1.5, far * 0.8);
+          world.mesh.visible = far01 < 0.98;
+          world.mesh.material.opacity = 1 - far01;
+          for (const { slab, l } of slabs) {
+            slab.material.opacity = far01;
+            slab.visible = far01 > 0.02;
+            l.material.opacity = far01;
+            l.visible = far01 > 0.02;
+            pin(l, camera, 12, H);
+          }
+          a.position.set(web2.ox + 6, 6.5 + far01 * 2, web2.oz + 5);
+          b.position.set(look.ox + 3, 5.5 + far01 * 2, look.oz + 4);
+          a.material.opacity = 0.7 + Math.sin(t * 2.4) * 0.25;
+          b.material.opacity = 0.7 + Math.sin(t * 2.4 + 1.1) * 0.25;
+          pin(a, camera, 9, H);
+          pin(b, camera, 9, H);
+          tier.textContent = far01 > 0.5 ? 'portfolio · 4 repos · 2 agents' : 'repo · QuartzX.Web2';
+          renderer.render(sc, camera);
+        });
+      }
+
+      // ---------------------------------------------------------------- card C
+      {
+        const c = card(
+          'C · Focus and periphery',
+          'cheapest',
+          'cur',
+          `One repo is the map, exactly as today. The others are chips on the panel edge that
+           carry only a colour and a pulse when an agent acts there. Click a chip to swap the map.
+           The two-second read is untouched, and this is the most companion-shaped answer: the
+           edge chip is a game's off-screen indicator.
+           <br /><br /><b>The cost:</b> an agent that moves from Web2 to Lookups teleports from the
+           map to a chip, which the motion grammar forbids, and a cross-repo import can never be
+           drawn. It buys awareness, not one world.`,
+        );
+        const { stage, renderer, sc, camera, H } = makeStage(c.el);
+        c.el.insertBefore(stage, c.notes);
+        const one = { repos: [{ ...built[0], ox: 0, oz: 0 }], w: built[0].w, d: built[0].d };
+        addWorld(sc, one);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.1;
+        frame(camera, controls, one.w / 2, one.d / 2, one.w * 1.35);
+        const a = beacon(AGENT_A);
+        a.position.set(6, 6.5, 5);
+        sc.add(a);
+
+        const dock = document.createElement('div');
+        dock.className = 'dock';
+        const chips = REPOS.map((r, i) => {
+          const el = document.createElement('div');
+          el.className = `chip${i === 0 ? ' active' : ''}`;
+          el.innerHTML = `<span class="dot" style="background:${
+            i === 0 ? '#5de3d3' : i === 3 ? '#e36fd6' : '#2b3244'
+          }"></span>${r.name.replace('QuartzX.', '')}`;
+          dock.appendChild(el);
+          return el;
+        });
+        stage.appendChild(dock);
+
+        const roster = document.createElement('div');
+        roster.className = 'roster';
+        roster.innerHTML =
+          '<div><span class="dot" style="background:#5de3d3"></span>claude-a editing</div>' +
+          '<div><span class="dot" style="background:#e36fd6"></span>claude-b · Lookups</div>';
+        stage.appendChild(roster);
+
+        loops.push((t) => {
+          controls.update();
+          a.material.opacity = 0.7 + Math.sin(t * 2.4) * 0.25;
+          pin(a, camera, 9, H);
+          // the off-screen agent announces itself on the chip and nowhere else
+          chips[3].style.borderColor = Math.sin(t * 2.4 + 1.1) > 0.3 ? '#7a3f74' : '#232a3b';
+          renderer.render(sc, camera);
+        });
+      }
+
+      // ---------------------------------------------------------------- card D
+      {
+        const c = card(
+          'D · Repos as more countries',
+          'refused',
+          'no',
+          `What falls out for free: hand <code>placeBlocks</code> repo-qualified paths and each
+           repo's projects simply join the one shelf. No layout work at all.
+           <br /><br /><b>Why not:</b> <code>familyOf</code> reads the top-level folder, which is now
+           the repo name, so a repo collapses to a single hue and the apps/libs/docs/plumbing read
+           dies, as this card shows. A repo and a project also become the same rank, which is a lie
+           about the hierarchy, and mounting a repo re-shelves every other one, which is law 5.`,
+        );
+        const { stage, renderer, sc, camera, H } = makeStage(c.el);
+        c.el.insertBefore(stage, c.notes);
+        const flat = place(C_GAP);
+        const repoHue = [28, 212, 140, 320];
+        addWorld(sc, flat, {
+          tint: (t) => {
+            const i = flat.repos.indexOf(t.r);
+            return hsl(repoHue[i] ?? 0, 0.45, 0.34 + ((t.h ?? 2) / 6) * 0.16);
+          },
+        });
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI / 2.1;
+        frame(camera, controls, flat.w / 2, flat.d / 2, flat.w * 0.72);
+        const tier = document.createElement('div');
+        tier.className = 'tier';
+        tier.textContent = 'one shelf · family collapsed to repo';
+        stage.appendChild(tier);
+        loops.push(() => {
+          controls.update();
+          renderer.render(sc, camera);
+        });
+      }
+
+      run();
+    </script>
+  </body>
+</html>

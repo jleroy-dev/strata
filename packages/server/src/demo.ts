@@ -1,70 +1,20 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { repoId, repoPath } from '@strata/core';
+import { ScratchActions, type ScratchResult } from './actions.js';
+import { FIXTURE, listing } from './fixture.js';
+import { openScratch, seedScratch, type Scratch } from './scratch.js';
 
-const FILES: [string, number][] = [
-  ['package.json', 400],
-  ['apps/api/package.json', 300],
-  ['apps/api/src/main.ts', 1200],
-  ['apps/api/src/app/rooms.controller.ts', 3100],
-  ['apps/api/src/app/rooms.service.ts', 5200],
-  ['apps/api/src/app/rooms.service.spec.ts', 7600],
-  ['apps/web/package.json', 300],
-  ['apps/web/src/main.ts', 500],
-  ['apps/web/src/pages/home.page.ts', 3900],
-  ['apps/web/src/pages/room.page.ts', 6100],
-  ['libs/shared/ui/package.json', 300],
-  ['libs/shared/ui/src/button.ts', 1900],
-  ['libs/shared/ui/src/dialog.ts', 4300],
-  ['libs/shared/ui/src/toast.ts', 1500],
-  ['libs/story/engine/package.json', 300],
-  ['libs/story/engine/src/engine.ts', 14000],
-  ['libs/story/engine/src/parser.ts', 6800],
-  ['libs/story/engine/src/tokens.ts', 1200],
-  ['docs/DESIGN.md', 21000],
-  ['docs/NOTES.md', 6400],
-  ['README.md', 4200],
-  ['.gitignore', 20],
-];
-
-const fill = (n: number): string => `${'x'.repeat(Math.max(0, n - 1))}\n`;
-
-/** The listing the product mockup was built on, when its dump is on this machine. */
-function mockupListing(): [string, number][] | undefined {
-  const dump = new URL('../../../docs/mockups/data/tellmeastory.local.js', import.meta.url);
-  try {
-    const text = readFileSync(dump, 'utf8');
-    const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
-    const parsed = JSON.parse(json) as { files?: unknown };
-    if (!Array.isArray(parsed.files)) return undefined;
-    return parsed.files.filter(
-      (f): f is [string, number] =>
-        Array.isArray(f) && typeof f[0] === 'string' && typeof f[1] === 'number',
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-/** Builds the scratch repo the demo drives, once. */
-export function seedDemo(dir: string): void {
-  if (existsSync(join(dir, '.git'))) return;
-  mkdirSync(dir, { recursive: true });
-  const listing = mockupListing() ?? FILES;
+/** The scratch repo the demo drives, seeded on first run and reused after. */
+export function seedDemo(dir: string): Scratch {
+  const open = openScratch(dir);
+  if (open) return open;
+  const files = listing();
   console.log(
-    `strata demo: seeding ${String(listing.length)} files${listing === FILES ? '' : ' from the mockup listing'}`,
+    `strata demo: seeding ${String(files.length)} files${files === FIXTURE ? '' : ' from the mockup listing'}`,
   );
-  for (const [path, size] of listing) {
-    mkdirSync(join(dir, path, '..'), { recursive: true });
-    writeFileSync(join(dir, path), fill(size));
-  }
-  execFileSync('git', ['init', '-q'], { cwd: dir });
-  execFileSync('git', ['add', '-A'], { cwd: dir });
-  execFileSync(
-    'git',
-    ['-c', 'user.name=demo', '-c', 'user.email=demo@strata', 'commit', '-qm', 'seed'],
-    { cwd: dir },
-  );
+  return seedScratch(dir, files);
 }
 
 interface Session {
@@ -74,7 +24,7 @@ interface Session {
 
 /** Drives the scratch repo and two sessions against a running server, forever. */
 export async function runDemo(dir: string, port: number): Promise<void> {
-  seedDemo(dir);
+  const scratch = seedDemo(dir);
   const url = `http://127.0.0.1:${String(port)}/hook`;
   const health = `http://127.0.0.1:${String(port)}/health`;
   console.log(`strata demo: ${dir} seeded, waiting for the server on port ${String(port)}`);
@@ -94,7 +44,8 @@ export async function runDemo(dir: string, port: number): Promise<void> {
     id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
     at: 'apps/web/src/pages/room.page.ts',
   };
-  const sessions: Session[] = [first, second];
+  const third: Session = { id: '7c1d9e2f-5a3b-4c8d-9e0f-1a2b3c4d5e6f', at: first.at };
+  const sessions: Session[] = [first, second, third];
   const post = (body: Record<string, unknown>): Promise<unknown> =>
     fetch(url, { method: 'POST', body: JSON.stringify(body) }).catch(() => undefined);
   const hook = (s: Session, event: string, extra: Record<string, unknown> = {}): Promise<unknown> =>
@@ -107,20 +58,31 @@ export async function runDemo(dir: string, port: number): Promise<void> {
     });
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
   const pick = <T>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)] as T;
-  const listed = execFileSync(
-    'git',
-    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
-    {
+  const relist = (): string[] =>
+    execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
       cwd: dir,
-    },
-  )
-    .toString('utf8')
-    .split('\0')
-    .filter((p) => (p.endsWith('.ts') || p.endsWith('.md')) && existsSync(join(dir, p)));
+    })
+      .toString('utf8')
+      .split('\0')
+      .filter((p) => (p.endsWith('.ts') || p.endsWith('.md')) && existsSync(join(dir, p)));
+  const listed = relist();
   let live = new Set<string>(listed);
   let counter = Date.now() % 100_000;
   first.at = pick(listed);
   second.at = pick(listed);
+  const actions = new ScratchActions(scratch, repoId(basename(dir)), () => [...live].map(repoPath));
+  const relocate = (from: string, to: string): void => {
+    const at = (p: string): string =>
+      p === from || p.startsWith(`${from}/`) ? `${to}${p.slice(from.length)}` : p;
+    for (const s of sessions) s.at = at(s.at);
+    for (const [s, home] of homes) homes.set(s, at(home));
+  };
+  const applied = (result: ScratchResult | undefined): void => {
+    if (!result) return;
+    live = new Set(relist());
+    const [from, to] = result.paths;
+    if (from !== undefined && to !== undefined && result.action !== 'burst') relocate(from, to);
+  };
 
   const read = (s: Session, path: string): Promise<unknown> =>
     hook(s, 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: join(dir, path) } });
@@ -131,8 +93,7 @@ export async function runDemo(dir: string, port: number): Promise<void> {
     }
     await hook(s, 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: join(dir, path) } });
     await sleep(300);
-    const size = 300 + Math.floor(Math.random() * 6000);
-    writeFileSync(join(dir, path), fill(size));
+    actions.writeAt(repoPath(path), 300 + Math.floor(Math.random() * 6000));
   };
 
   const inDistrict = (path: string): string[] => {
@@ -146,30 +107,9 @@ export async function runDemo(dir: string, port: number): Promise<void> {
   const create = async (s: Session, path: string, size: number): Promise<void> => {
     await hook(s, 'PreToolUse', { tool_name: 'Write', tool_input: { file_path: join(dir, path) } });
     await sleep(300);
-    mkdirSync(join(dir, path, '..'), { recursive: true });
-    writeFileSync(join(dir, path), fill(size));
+    actions.addAt(repoPath(path), size);
     live.add(path);
   };
-  const remove = (path: string): void => {
-    if (!existsSync(join(dir, path))) return;
-    rmSync(join(dir, path));
-    live.delete(path);
-  };
-  const rename = (from: string, to: string): void => {
-    if (!existsSync(join(dir, from))) return;
-    renameSync(join(dir, from), join(dir, to));
-    live.delete(from);
-    live.add(to);
-    for (const s of sessions) if (s.at === from) s.at = to;
-  };
-  const moveFolder = (from: string, to: string): void => {
-    if (!existsSync(join(dir, from))) return;
-    mkdirSync(join(dir, to, '..'), { recursive: true });
-    renameSync(join(dir, from), join(dir, to));
-    live = new Set([...live].map((p) => (p.startsWith(`${from}/`) ? p.replace(from, to) : p)));
-    for (const s of sessions) if (s.at.startsWith(`${from}/`)) s.at = s.at.replace(from, to);
-  };
-  const third: Session = { id: '7c1d9e2f-5a3b-4c8d-9e0f-1a2b3c4d5e6f', at: first.at };
 
   const pool = (home: string): string[] => {
     const same = inDistrict(home);
@@ -200,9 +140,9 @@ export async function runDemo(dir: string, port: number): Promise<void> {
   console.log('strata demo: seeding an hour of touches');
   await arrive(first);
   await arrive(second);
-  const dirs = [...new Set([...live].map((p) => p.slice(0, p.lastIndexOf('/'))))].filter((d) =>
-    d.includes('/'),
-  );
+  const dirs = [
+    ...new Set([...live].map((p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''))),
+  ].filter((d) => d.includes('/'));
   homes.set(first, `${pick(dirs)}/x`);
   homes.set(second, `${pick(dirs.filter((d) => !homes.get(first)?.startsWith(d)))}/x`);
   for (let i = 0; i < 60; i++) {
@@ -232,31 +172,20 @@ export async function runDemo(dir: string, port: number): Promise<void> {
   const setPieces: (() => Promise<void> | void)[] = [
     () => {
       const from = pick([...live].filter((p) => p.endsWith('.ts')));
-      const to = `docs/${from.slice(from.lastIndexOf('/') + 1)}`;
-      rename(from, to);
-    },
-    () => {
-      const candidates = [...live].filter(
-        (p) =>
-          p.includes('/src/') &&
-          p.endsWith('.ts') &&
-          !/-\d+\//.test(p) &&
-          inDistrict(p).length >= 2 &&
-          inDistrict(p).length <= 12,
+      const moved = actions.moveTo(
+        repoPath(from),
+        repoPath(`docs/${from.slice(from.lastIndexOf('/') + 1)}`),
       );
-      if (candidates.length === 0) return;
-      const from = pick(candidates).replace(/\/[^/]+$/, '');
-      moveFolder(from, `${from}-${String(counter++)}`);
+      applied(moved && { action: 'move-file', paths: moved });
     },
     () => {
-      const from = pick([...live].filter((p) => p.endsWith('.ts')));
-      rename(from, from.replace(/([^/]+)\.ts$/, `use-$1.ts`));
+      applied(actions.run('move-folder'));
     },
     () => {
-      const targets = [...live].filter((p) => p.endsWith('.ts')).slice(0, 40);
-      for (const p of targets)
-        if (existsSync(join(dir, p)))
-          writeFileSync(join(dir, p), fill(300 + Math.floor(Math.random() * 6000)));
+      applied(actions.run('rename'));
+    },
+    () => {
+      applied(actions.run('burst'));
     },
     async () => {
       if (alive.size === 0) return;
@@ -265,8 +194,8 @@ export async function runDemo(dir: string, port: number): Promise<void> {
       await create(s, fresh, 400 + Math.floor(Math.random() * 3000));
     },
     () => {
-      const gone = [...live].filter((p) => p.includes('-') && p.endsWith('.ts')).slice(0, 2);
-      for (const p of gone) remove(p);
+      applied(actions.run('remove'));
+      applied(actions.run('remove'));
     },
   ];
   let nextSetPiece = Date.now() + 20_000;

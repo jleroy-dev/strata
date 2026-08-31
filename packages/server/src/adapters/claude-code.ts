@@ -1,32 +1,55 @@
-import { relative, resolve, sep } from 'node:path';
-import type { AgentSignal } from '@strata/core';
+import type { AgentSignal, BlockId } from '@strata/core';
+import type { Mounts } from '../mounts.js';
 
 const READ_TOOLS = new Set(['Read']);
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const SHELL_TOOLS = new Set(['Bash']);
+const BLOCKING_NOTIFICATIONS = new Set(['permission_prompt', 'agent_needs_input']);
+
+/**
+ * Why a payload produced no signal. `ignored` is a choice and the rest are failures to read,
+ * which is why they are counted apart.
+ */
+export type DropReason = 'malformed' | 'no-session' | 'unknown-repo' | 'unknown-event' | 'ignored';
+
+export type Read = { signal: AgentSignal } | { dropped: DropReason };
 
 interface HookPayload {
   session_id?: unknown;
   cwd?: unknown;
   hook_event_name?: unknown;
+  notification_type?: unknown;
   tool_name?: unknown;
   tool_input?: unknown;
 }
 
-/** Turns one Claude Code hook payload into a signal, or nothing when it is not about `root`. */
-export function fromClaudeCode(body: unknown, root: string, at: number): AgentSignal | undefined {
-  if (typeof body !== 'object' || body === null) return undefined;
+/** Turns one Claude Code hook payload into a signal, or says why it carries none. */
+export function fromClaudeCode(body: unknown, mounts: Mounts, at: number): Read {
+  if (typeof body !== 'object' || body === null) return { dropped: 'malformed' };
   const p = body as HookPayload;
-  if (typeof p.session_id !== 'string' || typeof p.cwd !== 'string') return undefined;
-  if (!within(root, p.cwd) && !within(p.cwd, root)) return undefined;
+  if (typeof p.session_id !== 'string' || typeof p.cwd !== 'string') {
+    return { dropped: 'no-session' };
+  }
+  const mount = mounts.repoAt(p.cwd);
+  if (!mount) return { dropped: 'unknown-repo' };
   const session = p.session_id;
+  const repo = mount.id;
   switch (p.hook_event_name) {
     case 'SessionStart':
-      return { session, at, kind: 'start' };
+      return { signal: { session, repo, at, kind: 'start' } };
+    case 'UserPromptSubmit':
+      return { signal: { session, repo, at, kind: 'prompt' } };
+    case 'PostToolUse':
+      return { signal: { session, repo, at, kind: 'tool-end' } };
+    case 'Notification':
+      return typeof p.notification_type === 'string' &&
+        BLOCKING_NOTIFICATIONS.has(p.notification_type)
+        ? { signal: { session, repo, at, kind: 'blocked' } }
+        : { dropped: 'ignored' };
     case 'Stop':
-      return { session, at, kind: 'turn-end' };
+      return { signal: { session, repo, at, kind: 'turn-end' } };
     case 'SessionEnd':
-      return { session, at, kind: 'end' };
+      return { signal: { session, repo, at, kind: 'end' } };
     case 'PreToolUse': {
       const name = typeof p.tool_name === 'string' ? p.tool_name : '';
       const tool = READ_TOOLS.has(name)
@@ -36,24 +59,23 @@ export function fromClaudeCode(body: unknown, root: string, at: number): AgentSi
           : SHELL_TOOLS.has(name)
             ? 'shell'
             : 'other';
-      const path = filePath(p.tool_input, root);
-      return { session, at, kind: 'tool', tool, ...(path !== undefined && { path }) };
+      const path = blockOf(p.tool_input, mounts, mount);
+      return {
+        signal: { session, repo, at, kind: 'tool', tool, ...(path !== undefined && { path }) },
+      };
     }
     default:
-      return undefined;
+      return { dropped: 'unknown-event' };
   }
 }
 
-function filePath(input: unknown, root: string): string | undefined {
+function blockOf(
+  input: unknown,
+  mounts: Mounts,
+  mount: Parameters<Mounts['blockAt']>[0],
+): BlockId | undefined {
   if (typeof input !== 'object' || input === null) return undefined;
   const raw = (input as { file_path?: unknown }).file_path;
   if (typeof raw !== 'string') return undefined;
-  const abs = resolve(root, raw);
-  if (!within(root, abs)) return undefined;
-  return relative(root, abs).split(sep).join('/');
-}
-
-function within(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !rel.startsWith(sep) && !/^[A-Za-z]:/.test(rel));
+  return mounts.blockAt(mount, raw);
 }
