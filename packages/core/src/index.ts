@@ -17,6 +17,7 @@ export {
   contains,
   skirted,
 } from './footprint.js';
+export { terrainOf, worldCellOf, type Terrain, type Tiers } from './heights.js';
 export { BINARY_EXTENSIONS, isBinary } from './binary.js';
 export { MAX_HEIGHT, SLAB_HEIGHT, heightOf } from './height.js';
 export { FAMILIES, VARIANTS_PER_FAMILY, familyOf, familyRank, type Family } from './family.js';
@@ -63,6 +64,7 @@ export {
   WORLD_RADIUS,
   add as addVec,
   bendAt,
+  unbendAt,
   bendNormal,
   chordFor,
   dropAt,

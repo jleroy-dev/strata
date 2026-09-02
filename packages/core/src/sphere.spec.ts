@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   WORLD_RADIUS,
   bendAt,
+  unbendAt,
   bendNormal,
   chordFor,
   dot,
@@ -104,5 +105,22 @@ describe('chordFor', () => {
     expect(chord).toBeGreaterThan(20);
     expect(Math.ceil(40 / chord)).toBe(2);
     expect(Math.ceil(10 / chord)).toBe(1);
+  });
+});
+
+describe('unbendAt', () => {
+  it('returns whatever bendAt was given', () => {
+    for (const [u, v, y] of [
+      [0, 0, 0],
+      [12, -30, 4],
+      [-200, 140, 90],
+      [1, 0, 0],
+      [0, 0, 55],
+    ] as const) {
+      const back = unbendAt(bendAt(u, v, y));
+      expect(back.u).toBeCloseTo(u, 6);
+      expect(back.v).toBeCloseTo(v, 6);
+      expect(back.y).toBeCloseTo(y, 6);
+    }
   });
 });

@@ -37,6 +37,22 @@ import { Effects } from './effects.js';
 import { ago } from './dom.js';
 import { ADRIFT_MS, drawHud, drawLabel } from './hud.js';
 import { bindInput } from './input.js';
+import {
+  DRONE,
+  enterAt,
+  rangeTo,
+  leaveDrone,
+  lookRadians,
+  stepDrone,
+  type Drone,
+  type Pull,
+  type Sticks,
+} from './drone.js';
+import { placeDrone } from './dronecam.js';
+import { panel } from './dom.js';
+import { GunFx } from './gunfx.js';
+import * as gun from './gunsound.js';
+import { canGrapple, canStrike, fired, GUN, NO_TRIM, stepTrim, type Trim } from './weapons.js';
 import { Lines } from './lines.js';
 import { Ground } from './ground.js';
 import { Ribbons } from './ribbons.js';
@@ -44,10 +60,10 @@ import { drawRoster } from './roster.js';
 import { mountSim, type Forced } from './sim.js';
 import { createStage } from './stage.js';
 import { Strip } from './strip.js';
-import { PLATFORM_LIFT, paint } from './theme.js';
+import { GROUND, PLATFORM_LIFT, paint } from './theme.js';
 import { emptyWorld, fold, type Folded } from './world.js';
 import { INITIAL_CHASE, chase, standoffZoom, type Chase } from './chase.js';
-import type { Moment } from '@strata/core';
+import { terrainOf, worldCellOf, type Moment, type Terrain } from '@strata/core';
 
 export const SERVER = `127.0.0.1:${new URLSearchParams(window.location.search).get('server') ?? '4747'}`;
 
@@ -77,6 +93,12 @@ let disconnectedAt = 0;
 let hudAt = 0;
 let frameSelection = false;
 let overviewView: View | undefined;
+let flier: Drone | undefined;
+let lensLeft = 0;
+let terrain: Terrain | undefined;
+let terrainFor: unknown;
+let trim: Trim = NO_TRIM;
+let pull: Pull | undefined;
 let recompose = true;
 let activity: ReadonlyMap<RepoId, number> = new Map();
 let attention: AttentionState = INITIAL_ATTENTION;
@@ -198,7 +220,202 @@ const input = bindInput(
       camera.zoomAt(notches, ndc);
     },
   },
+  undefined,
+  () => ui.mode === 'drone',
 );
+
+const BASE_FOV = stage.camera.fov;
+const rush = panel('rush');
+const muzzle = panel('muzzle');
+const gunfx = new GunFx(stage.scene);
+const SHOT_COLOUR = new THREE.Color(0.62, 0.91, 1);
+const DRONE_FOV_KICK = DRONE.fovKick;
+const RUSH_DEPTH = 0.55;
+
+const TIERS = {
+  water: GROUND.water,
+  land: GROUND.continent.top,
+  country: GROUND.country.top,
+  district: GROUND.district.top,
+};
+
+function terrainNow(): Terrain {
+  if (!terrain || terrainFor !== shown.layout) {
+    terrain = terrainOf(shown.layout, TIERS);
+    terrainFor = shown.layout;
+  }
+  return terrain;
+}
+
+function sticksNow(): Sticks {
+  const held = input.held();
+  const on = (code: string): number => (held.has(code) ? 1 : 0);
+  return {
+    forward: on('KeyW') - on('KeyS'),
+    strafe: on('KeyD') - on('KeyA'),
+    lift: on('KeyE') - on('KeyQ'),
+    boost: held.has('ShiftLeft') || held.has('ShiftRight'),
+    precise: held.has('ControlLeft') || held.has('ControlRight'),
+  };
+}
+
+function centreShot(range: number): { id: BlockId; top: THREE.Vector3 } | undefined {
+  const id = ground.pick(new THREE.Vector2(0, 0), stage.camera);
+  if (id === undefined) return undefined;
+  const top = ground.top(id);
+  if (!top || top.distanceTo(stage.camera.position) > range) return undefined;
+  return { id, top };
+}
+
+let wing = 1;
+
+function muzzleAt(): THREE.Vector3 {
+  wing = -wing;
+  return stage.camera.localToWorld(new THREE.Vector3(0.9 * wing, -0.34, -1.1));
+}
+
+function land(id: BlockId, top: THREE.Vector3, hard: boolean): void {
+  const frame = ground.frameOf(id);
+  const foot = ground.foot(id);
+  if (!frame) return;
+  const born = Date.now();
+  effects.add({ kind: 'ping', at: top.clone(), frame, color: SHOT_COLOUR, born, life: 280 });
+  effects.add({
+    kind: 'sparks',
+    at: top.clone(),
+    frame,
+    color: SHOT_COLOUR,
+    born,
+    life: hard ? 520 : 380,
+    count: hard ? 16 : 7,
+  });
+  if (foot) {
+    effects.add({
+      kind: 'wave',
+      at: foot.clone(),
+      frame,
+      color: SHOT_COLOUR,
+      born,
+      life: hard ? 620 : 440,
+      second: hard,
+      radius: hard ? 2.4 : 1.6,
+      mult: 1,
+    });
+  }
+  const block = shown.layout.blocks.get(id);
+  gun.hit(block?.height ?? 1);
+}
+
+function striker(now: number): void {
+  if (!canStrike(trim, now)) return;
+  const hit = centreShot(GUN.strikerRange);
+  const from = muzzleAt();
+  const to = hit
+    ? hit.top.clone()
+    : from
+        .clone()
+        .add(stage.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(GUN.strikerRange));
+  gunfx.fire(
+    from,
+    to,
+    'bolt',
+    hit
+      ? () => {
+          land(hit.id, hit.top, false);
+        }
+      : undefined,
+  );
+  trim = fired(trim, now, 'striker');
+  gun.shot();
+}
+
+function grapple(now: number): void {
+  if (!flier) return;
+  if (pull) {
+    pull = undefined;
+    gunfx.release();
+    gun.release();
+    return;
+  }
+  if (!canGrapple(trim, now)) return;
+  const hit = centreShot(GUN.grappleRange);
+  const from = muzzleAt();
+  if (!hit) {
+    const to = from
+      .clone()
+      .add(stage.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(GUN.grappleRange));
+    gunfx.fire(from, to, 'ring');
+    trim = fired(trim, now, 'grapple');
+    gun.shot();
+    return;
+  }
+  const block = shown.layout.blocks.get(hit.id);
+  const cell = worldCellOf(shown.layout, hit.id);
+  if (!cell) return;
+  gunfx.fire(from, hit.top.clone(), 'ring', () => {
+    land(hit.id, hit.top, true);
+    if (!flier) return;
+    const at = {
+      x: cell.x + 0.5,
+      z: cell.z + 0.5,
+      alt: (block?.height ?? 1) + TIERS.district + 0.6,
+    };
+    pull = { at, span: Math.max(1, rangeTo(flier, at)) };
+    gunfx.hold(hit.top);
+    gun.reel();
+  });
+  trim = fired(trim, now, 'grapple');
+  gun.shot();
+}
+
+function stowWeapons(): void {
+  gunfx.clear();
+  trim = NO_TRIM;
+  pull = undefined;
+  muzzle.style.opacity = '0';
+}
+
+function flyDrone(dt: number): void {
+  const tops = terrainNow();
+  const surfaceOf = {
+    surfaceAt: (x: number, z: number) => tops.topAt(x, z),
+    baseAt: (x: number, z: number) => tops.baseAt(x, z),
+  };
+  flier ??= enterAt(
+    ground.surface.cellAt(stage.camera.position),
+    camera.view.bearing,
+    camera.view.pitch,
+    surfaceOf,
+  );
+  const now = Date.now();
+  const held = input.held();
+  if (held.has('Space')) striker(now);
+  if (held.has('KeyF')) grapple(now);
+  trim = stepTrim(trim, dt);
+  muzzle.style.opacity = trim.flash < 0.004 ? '0' : String(trim.flash);
+  const taken = input.takeLook();
+  flier = stepDrone(
+    flier,
+    sticksNow(),
+    { x: lookRadians(taken.x), y: lookRadians(taken.y) },
+    dt,
+    surfaceOf,
+    pull,
+  );
+  if (pull && rangeTo(flier, pull.at) <= GUN.standoff) {
+    pull = undefined;
+    gunfx.release();
+    gun.release();
+  }
+  placeDrone(stage.camera, ground.surface, flier, trim);
+  gunfx.step(dt, stage.camera);
+  const fov = BASE_FOV + flier.lens + flier.fovBoost + trim.punch;
+  if (Math.abs(stage.camera.fov - fov) > 0.01) {
+    stage.camera.fov = fov;
+    stage.camera.updateProjectionMatrix();
+  }
+  rush.style.opacity = String(Math.min(1, flier.fovBoost / DRONE_FOV_KICK) * RUSH_DEPTH);
+}
 
 function connect(): void {
   const socket = new WebSocket(`ws://${SERVER}`);
@@ -404,17 +621,40 @@ function frame(): void {
     dispatch({ kind: 'agent-gone', agentId: ui.follow });
 
   attendActivity(now);
-  if (ui.mode === 'follow') {
-    if (!keepUp(now)) camera.aim(overview(), now);
-  } else {
+  const elapsed = now - (lastFrameAt || now - 16);
+  if (ui.mode === 'drone') {
     chasedId = undefined;
-    const want = desiredView();
-    if (want) camera.aim(want, now);
+    flyDrone(Math.min(0.05, elapsed / 1000));
+  } else {
+    if (flier) {
+      camera.jump(leaveDrone(flier));
+      lensLeft = stage.camera.fov - BASE_FOV;
+      flier = undefined;
+      recompose = true;
+      rush.style.opacity = '0';
+      stowWeapons();
+      input.forget();
+    }
+    if (lensLeft !== 0) {
+      lensLeft = lensLeft > 0.01 ? lensLeft * Math.exp(-elapsed / 1000 / DRONE.lensEase) : 0;
+      stage.camera.fov = BASE_FOV + lensLeft;
+      stage.camera.updateProjectionMatrix();
+    }
+    if (ui.mode === 'follow') {
+      if (!keepUp(now)) camera.aim(overview(), now);
+    } else {
+      chasedId = undefined;
+      const want = desiredView();
+      if (want) camera.aim(want, now);
+    }
+    camera.update(elapsed, now);
   }
-  camera.update(now - (lastFrameAt || now - 16), now);
   lastFrameAt = now;
   const extent = ground.surface.extent;
-  stage.fog(camera.distance, Math.max(20, Math.max(extent.w, extent.h)));
+  const seen = flier
+    ? Math.max(1, flier.eye.alt - terrainNow().topAt(flier.eye.x, flier.eye.z))
+    : camera.distance;
+  stage.fog(seen, Math.max(20, Math.max(extent.w, extent.h)));
 
   if (now - hudAt > 500) {
     hudAt = now;

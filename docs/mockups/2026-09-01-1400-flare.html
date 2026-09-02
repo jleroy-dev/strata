@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · flare board</title>
+    <style id="css"></style>
+  </head>
+  <body>
+    <h1>The flare · what a round looks like leaving you and landing</h1>
+    <p class="lead">
+      Read off the Star Fox 64 reference rather than invented: a long tapered sliver rather than a
+      stubby one, a four pointed star at the muzzle and at the hit rather than a round blob, and
+      glows that are large and diffuse rather than small and hot. The towers stand in for scale at
+      the proportions <code>terrain.ts</code> draws, and every card runs the panel's own bloom at
+      the <code>theme.ts</code> values. The reference's camera sits behind and above its ship, so
+      its bolts are seen three quarter on; ours sits directly behind, which is why the
+      <b>muzzle spread</b> slider matters more than any shape here. Card A is what ships today.
+      <b>Drag a card to look around it.</b>
+    </p>
+    <div class="panel" id="panel"></div>
+    <div class="board" id="board"></div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import * as L from './data/world-lib.js';
+
+      document.getElementById('css').textContent =
+        L.BOARD_CSS +
+        `
+        .panel { position: sticky; top: 0; z-index: 5; background: #0b0d12; display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 20px 12px; border-bottom: 1px solid #1c2130; }
+        .row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #9aa5bd; }
+        .row span { color: #dfe6f5; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+        .board { grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); }
+        .card h2 .rec { color: #b8e6a8; } .card h2 .cur { color: #f2c14e; }
+      `;
+
+      const W = 440;
+      const H = 330;
+      const MAGENTA = new THREE.Color().setHSL(318 / 360, 1, 0.62);
+      const CYAN = new THREE.Color(0.55, 0.92, 1);
+      const GOLD = new THREE.Color(1, 0.85, 0.42);
+
+      const opts = {
+        spread: 1.4,
+        converge: 26,
+        length: 5,
+        width: 0.16,
+        arms: 3.4,
+        flare: 1.5,
+        soft: 0.34,
+        bloom: 0.5,
+      };
+
+      function softTexture() {
+        const s = 128;
+        const c = document.createElement('canvas');
+        c.width = c.height = s;
+        const g = c.getContext('2d');
+        const h = s / 2;
+        const ramp = g.createRadialGradient(h, h, 0, h, h, h);
+        ramp.addColorStop(0, 'rgba(255,255,255,0.8)');
+        ramp.addColorStop(0.3, 'rgba(255,255,255,0.26)');
+        ramp.addColorStop(0.65, 'rgba(255,255,255,0.07)');
+        ramp.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = ramp;
+        g.fillRect(0, 0, s, s);
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+
+      function starTexture(arms) {
+        const s = 256;
+        const c = document.createElement('canvas');
+        c.width = c.height = s;
+        const g = c.getContext('2d');
+        const h = s / 2;
+        g.translate(h, h);
+        const reach = h * Math.min(0.98, arms / 4);
+        const waist = h * 0.055;
+        for (let i = 0; i < 4; i++) {
+          g.save();
+          g.rotate((Math.PI / 4) * (1 + 2 * i));
+          const ramp = g.createLinearGradient(0, 0, reach, 0);
+          ramp.addColorStop(0, 'rgba(255,255,255,0.95)');
+          ramp.addColorStop(0.25, 'rgba(255,255,255,0.4)');
+          ramp.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = ramp;
+          g.beginPath();
+          g.moveTo(0, -waist);
+          g.lineTo(reach, 0);
+          g.lineTo(0, waist);
+          g.closePath();
+          g.fill();
+          g.restore();
+        }
+        const core = g.createRadialGradient(0, 0, 0, 0, 0, h * 0.3);
+        core.addColorStop(0, 'rgba(255,255,255,1)');
+        core.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+        core.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = core;
+        g.beginPath();
+        g.arc(0, 0, h * 0.3, 0, Math.PI * 2);
+        g.fill();
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+
+      const SOFT = softTexture();
+      const STARS = [2, 3, 4, 5, 6].map((a) => [a, starTexture(a)]);
+      const starFor = (arms) =>
+        STARS.reduce((best, entry) =>
+          Math.abs(entry[0] - arms) < Math.abs(best[0] - arms) ? entry : best,
+        )[1];
+
+      function billboard(texture, colour, opacity) {
+        return new THREE.MeshBasicMaterial({
+          map: texture,
+          color: colour.clone().multiplyScalar(1.7),
+          toneMapped: false,
+          transparent: true,
+          opacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+      }
+
+      function build(el, spec) {
+        const stage = L.makeStage(W, H, { fog: 0.004, key: 2.2, ambient: 0.45 });
+        el.appendChild(stage.stage);
+        const controls = new OrbitControls(stage.camera, stage.renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 1.2, -16);
+        stage.camera.position.set(0, 2.6, 5);
+        controls.update();
+
+        const composer = new EffectComposer(stage.renderer);
+        composer.addPass(new RenderPass(stage.sc, stage.camera));
+        const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), opts.bloom, 0.3, 1.0);
+        composer.addPass(bloom);
+        composer.addPass(new OutputPass());
+
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(26, 0.4, 70),
+          new THREE.MeshStandardMaterial({ color: L.hsl(216, 0.14, 0.1), flatShading: true }),
+        );
+        slab.position.set(0, -0.2, -24);
+        stage.sc.add(slab);
+        const marks = [];
+        for (let i = 0; i < 38; i++) {
+          const th = 0.9 + ((i * 37) % 13) * 0.11;
+          const t = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, th, 0.8),
+            new THREE.MeshStandardMaterial({
+              color: L.hsl(212, 0.3, 0.42 + ((i * 7) % 5) * 0.05),
+              flatShading: true,
+            }),
+          );
+          t.position.set(-9 + ((i * 5) % 19), th / 2, -6 - ((i * 11) % 40));
+          stage.sc.add(t);
+          if (i % 6 === 0) marks.push(new THREE.Vector3(t.position.x, th + 0.3, t.position.z));
+        }
+
+        const body = spec.colour;
+        const sliver = new THREE.SphereGeometry(1, spec.sliver ? 6 : 8, spec.sliver ? 3 : 4);
+        const lit = new THREE.MeshStandardMaterial({
+          color: body,
+          emissive: body,
+          emissiveIntensity: 0.7,
+          roughness: 0.35,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.65,
+          depthWrite: false,
+        });
+        const hot = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(3.2, 3.2, 3.2),
+          toneMapped: false,
+        });
+        const quad = new THREE.PlaneGeometry(1, 1);
+        const haloMat = billboard(spec.star ? starFor(opts.arms) : SOFT, body, 0.85);
+
+        const rounds = [];
+        for (let i = 0; i < 30; i++) {
+          const shell = new THREE.Mesh(sliver, lit);
+          const core = new THREE.Mesh(sliver, hot);
+          const halo = new THREE.Mesh(quad, haloMat);
+          halo.renderOrder = 0;
+          shell.renderOrder = 2;
+          core.renderOrder = 3;
+          for (const m of [halo, shell, core]) {
+            m.visible = false;
+            m.frustumCulled = false;
+            stage.sc.add(m);
+          }
+          rounds.push({
+            shell,
+            core,
+            halo,
+            live: false,
+            t: 0,
+            from: new THREE.Vector3(),
+            to: new THREE.Vector3(),
+          });
+        }
+
+        const hits = [];
+        for (let i = 0; i < 10; i++) {
+          const m = new THREE.Mesh(
+            quad,
+            billboard(spec.star ? starFor(opts.arms) : SOFT, spec.hit, 1),
+          );
+          m.visible = false;
+          m.frustumCulled = false;
+          m.renderOrder = 4;
+          stage.sc.add(m);
+          hits.push({ mesh: m, age: 9 });
+        }
+
+        let next = 0;
+        let wing = 1;
+        let mark = 0;
+        const UPV = new THREE.Vector3(0, 1, 0);
+        const q1 = new THREE.Quaternion();
+
+        function fire(now) {
+          const slot = rounds.find((r) => !r.live);
+          if (!slot) return;
+          wing = -wing;
+          const target = marks[mark++ % marks.length];
+          slot.live = true;
+          slot.t = 0;
+          slot.from.set(opts.spread * wing, 1.2, 3);
+          slot.to.copy(target);
+          for (const m of [slot.shell, slot.core, slot.halo]) m.visible = true;
+        }
+
+        function burst(at, scale) {
+          const slot = hits.reduce((a, b) => (b.age > a.age ? b : a));
+          slot.age = 0;
+          slot.scale = scale;
+          slot.mesh.position.copy(at);
+          slot.mesh.visible = true;
+        }
+
+        function step(dt, now) {
+          if (now > next) {
+            next = now + 150;
+            fire(now);
+            burst(new THREE.Vector3(opts.spread * wing, 1.2, 3), 0.9);
+          }
+          for (const r of rounds) {
+            if (!r.live) continue;
+            const span = r.to.distanceTo(r.from);
+            r.t += (34 * dt) / Math.max(1, span);
+            const k = Math.min(1, r.t);
+            const at = r.from.clone().lerp(r.to, k);
+            const dir = r.to.clone().sub(r.from).normalize();
+            q1.setFromUnitVectors(UPV, dir);
+            const len = spec.sliver ? opts.length : 1.6;
+            const wide = spec.sliver ? opts.width : 0.35;
+            for (const m of [r.shell, r.core]) {
+              m.position.copy(at);
+              m.quaternion.copy(q1);
+            }
+            r.shell.scale.set(wide, len / 2, wide);
+            r.core.scale.set(wide * 0.5, (len / 2) * 0.62, wide * 0.5);
+            r.halo.position.copy(at);
+            r.halo.quaternion.copy(stage.camera.quaternion);
+            r.halo.scale.setScalar(opts.flare * (spec.star ? 1.6 : 1.3));
+            r.halo.material.opacity = spec.star ? 0.8 : opts.soft * 2.4;
+            if (k >= 1) {
+              r.live = false;
+              for (const m of [r.shell, r.core, r.halo]) m.visible = false;
+              burst(r.to, 2.1);
+            }
+          }
+          for (const h of hits) {
+            if (h.age > 1) {
+              h.mesh.visible = false;
+              continue;
+            }
+            h.age += dt / 0.26;
+            const k = Math.min(1, h.age);
+            h.mesh.quaternion.copy(stage.camera.quaternion);
+            h.mesh.scale.setScalar(opts.flare * h.scale * (0.5 + k * 1.5));
+            h.mesh.material.opacity = (1 - k) * (1 - k);
+          }
+        }
+
+        return {
+          tick(dt, now) {
+            step(dt, now);
+            controls.update();
+            bloom.strength = opts.bloom;
+            haloMat.map = spec.star ? starFor(opts.arms) : SOFT;
+            for (const h of hits) h.mesh.material.map = spec.star ? starFor(opts.arms) : SOFT;
+            composer.render();
+          },
+        };
+      }
+
+      const CARDS = [
+        {
+          title: 'A · today',
+          badge: 'in the tree',
+          cls: 'cur',
+          colour: MAGENTA,
+          hit: MAGENTA,
+          sliver: false,
+          star: false,
+          notes:
+            'Stubby round, round halo, narrow muzzles. Set <b>muzzle spread</b> low to see how little lateral travel a round gets when it leaves from under your chin.',
+        },
+        {
+          title: 'B · sliver, wide muzzles',
+          badge: 'shape only',
+          cls: '',
+          colour: MAGENTA,
+          hit: MAGENTA,
+          sliver: true,
+          star: false,
+          notes:
+            'The long tapered round from the reference, and muzzles far enough apart that the pair crosses the frame on its way out. Still a round halo, so this isolates what the geometry is worth.',
+        },
+        {
+          title: 'C · four pointed flare',
+          badge: 'recommended',
+          cls: 'rec',
+          colour: MAGENTA,
+          hit: GOLD,
+          sliver: true,
+          star: true,
+          notes:
+            'The reference star: a hot core over four tapering diagonal arms, on the muzzle and on the hit. Gold at the point of contact, the round keeping its own colour. <b>arms</b> sets how far the spikes reach.',
+        },
+        {
+          title: 'D · reference colours',
+          badge: 'star fox true',
+          cls: '',
+          colour: CYAN,
+          hit: GOLD,
+          sliver: true,
+          star: true,
+          notes:
+            'Card C with the reference palette: cyan rounds, gold contact. This is the pairing the screenshot uses, and the one that would move magenta onto the grapple.',
+        },
+      ];
+
+      const board = document.getElementById('board');
+      const views = CARDS.map((spec) => {
+        const { el, notes } = L.card(board, spec.title, spec.badge, spec.cls, spec.notes);
+        const view = build(el, spec);
+        el.appendChild(notes);
+        return view;
+      });
+
+      const panel = document.getElementById('panel');
+      const slider = (label, key, lo, hi, step) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const l = document.createElement('label');
+        l.textContent = label;
+        const i = document.createElement('input');
+        i.type = 'range';
+        i.min = lo;
+        i.max = hi;
+        i.step = step;
+        i.value = opts[key];
+        const out = document.createElement('span');
+        out.textContent = opts[key];
+        i.oninput = () => {
+          opts[key] = parseFloat(i.value);
+          out.textContent = opts[key];
+        };
+        row.append(l, i, out);
+        panel.appendChild(row);
+      };
+      slider('muzzle spread', 'spread', 0.2, 4, 0.1);
+      slider('round length', 'length', 1, 10, 0.5);
+      slider('round width', 'width', 0.05, 0.6, 0.01);
+      slider('flare arms', 'arms', 2, 6, 1);
+      slider('flare size', 'flare', 0.4, 4, 0.1);
+      slider('round halo', 'soft', 0.05, 1, 0.05);
+      slider('bloom', 'bloom', 0, 2, 0.05);
+
+      let last = performance.now();
+      function frame(now) {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        for (const v of views) v.tick(dt, now);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

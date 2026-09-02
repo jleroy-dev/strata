@@ -12,6 +12,7 @@ const HINTS: Record<Ui['mode'], string> = {
   overview: 'C cycles · Home returns',
   follow: 'click a beacon to switch · Home returns',
   free: 'Home returns to Overview',
+  drone: 'WASD flies · E and Q climb · Esc returns to Overview',
 };
 
 export function drawHud(
@@ -24,9 +25,11 @@ export function drawHud(
   const name =
     ui.mode === 'overview'
       ? 'Overview'
-      : ui.mode === 'free'
-        ? 'Free'
-        : `Follow · ${ui.follow === undefined ? `auto${following ? ` (${following.label})` : ''}` : (following?.label ?? ui.follow.slice(0, 8))}`;
+      : ui.mode === 'drone'
+        ? 'Drone'
+        : ui.mode === 'free'
+          ? 'Free'
+          : `Follow · ${ui.follow === undefined ? `auto${following ? ` (${following.label})` : ''}` : (following?.label ?? ui.follow.slice(0, 8))}`;
   void rows;
   mode.replaceChildren();
   const b = document.createElement('b');

@@ -76,6 +76,16 @@ export function bendAt(u: number, v: number, y = 0, radius = WORLD_RADIUS): Vec3
   };
 }
 
+/** The cell offset and height that `bendAt` would have put at this point. */
+export function unbendAt(p: Vec3, radius = WORLD_RADIUS): { u: number; v: number; y: number } {
+  const flat = Math.hypot(p.x, p.z);
+  const up = p.y + radius;
+  const reach = Math.hypot(flat, up);
+  if (flat < 1e-9) return { u: 0, v: 0, y: reach - radius };
+  const arc = Math.atan2(flat, up) * radius;
+  return { u: (p.x / flat) * arc, v: (p.z / flat) * arc, y: reach - radius };
+}
+
 /** How far the ground falls away over `d` cells. */
 export function dropAt(d: number, radius = WORLD_RADIUS): number {
   return radius * (1 - Math.cos(d / radius));

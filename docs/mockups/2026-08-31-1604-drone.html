@@ -1,0 +1,1740 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · drone board</title>
+    <style id="css"></style>
+  </head>
+  <body>
+    <h1>The drone · free flight over the world</h1>
+    <p class="lead">
+      The terrain is the real one: <code>strata</code> and the dev scratch, exactly as a running
+      server places them, countries, folders and tower heights included. Plate skirts, slab heights
+      and colours come from <code>terrain.ts</code> and <code>theme.ts</code>, and the ground is
+      bent over the world sphere at <code>WORLD_RADIUS</code>, so what you fly through is the map
+      and not a stand-in. The two agents are invented: they exist so that soft lock has something to
+      lock onto. <b>Click the view, then fly:</b> <code>WASD</code> to move, <code>E</code> and
+      <code>Q</code> for altitude, <code>Shift</code> to boost, <code>Ctrl</code> for precision,
+      <b>Hold <code>Space</code> to fire the striker</b>, which rings whatever it lands on without
+      changing it, and <code>F</code> to fire the grapple, which bites a tower and reels you to it.
+      A hit is pitched by the height of the tower, so a big file answers lower than a small one and
+      a district has a chord. <code>T</code> to lock the nearest agent, <code>Esc</code> to leave.
+      <code>1</code> to <code>4</code> jump to the four vantages the board is meant to be judged
+      from: the world, a skyline down <code>packages/core</code>, a worksite inside
+      <code>packages/web</code>, and the water between the two repos. Both movement schemes are on
+      the toggle; everything else on the right is an open number, and the point of the board is to
+      settle them by flying rather than on paper.
+    </p>
+    <div class="fly">
+      <div class="stagewrap" id="stagewrap"></div>
+      <div class="panel" id="panel"></div>
+    </div>
+    <script src="data/shoreline-layout.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import * as L from './data/world-lib.js';
+
+      document.getElementById('css').textContent =
+        L.BOARD_CSS +
+        `
+        .fly { display: flex; gap: 16px; padding: 0 20px 30px; align-items: flex-start; }
+        .stagewrap { position: relative; background: #06070b; border: 1px solid #1c2130; border-radius: 4px; overflow: hidden; }
+        .stagewrap.narrow { width: 380px; } .stagewrap.half { width: 760px; } .stagewrap.full { width: 1180px; }
+        .panel { width: 280px; flex: none; background: #12151c; border: 1px solid #1c2130; border-radius: 4px; padding: 10px 12px 14px; }
+        .panel h3 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #6f7b94; margin: 14px 0 6px; font-weight: 500; }
+        .panel h3:first-child { margin-top: 0; }
+        .seg { display: flex; gap: 4px; }
+        .seg button { flex: 1; background: #171b24; color: #9aa5bd; border: 1px solid #232936; border-radius: 3px; padding: 5px 4px; font: inherit; font-size: 11px; cursor: pointer; }
+        .seg button.on { background: #24304a; color: #dfe6f5; border-color: #35507e; }
+        .row { display: grid; grid-template-columns: 1fr 52px; gap: 6px; align-items: center; margin: 5px 0; font-size: 11px; color: #9aa5bd; }
+        .row input { width: 100%; }
+        .row span { text-align: right; color: #dfe6f5; font-variant-numeric: tabular-nums; }
+        .note { display: block; margin: 6px 0 2px; font-size: 11px; color: #6f7b94; line-height: 1.5; }
+        .note b { color: #dfe6f5; font-variant-numeric: tabular-nums; font-weight: 500; }
+        .note i { color: #e0a35a; font-style: normal; }
+        .hint { color: #6f7b94; font-size: 11px; margin: 8px 0 0; }
+        .read { position: absolute; left: 10px; top: 10px; font-size: 11px; color: #9aa5bd; line-height: 1.7; pointer-events: none; text-shadow: 0 1px 3px #000; }
+        .read b { color: #dfe6f5; font-variant-numeric: tabular-nums; }
+        .read i { color: #f2c14e; font-style: normal; }
+        .way { position: absolute; right: 10px; top: 10px; font-size: 11px; color: #cfe0ff; pointer-events: none; text-shadow: 0 1px 3px #000; }
+        .under { position: absolute; left: 50%; top: 50%; transform: translate(-50%, 14px); font-size: 11px; color: #cfe0ff; pointer-events: none; white-space: nowrap; text-shadow: 0 1px 3px #000; }
+        .dot { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%; background: rgba(255,255,255,0.5); pointer-events: none; }
+        .vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 38%, rgba(0,0,0,1) 100%); opacity: 0; }
+        .flash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(190,235,255,0.95) 0%, rgba(140,200,255,0.25) 45%, rgba(0,0,0,0) 75%); opacity: 0; mix-blend-mode: screen; }
+        .veil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(6,7,11,0.6); color: #cfe0ff; font-size: 12px; cursor: pointer; }
+        .veil.gone { display: none; }
+        canvas { display: block; }
+      `;
+
+      const LAYOUT = window.LAYOUT;
+
+      /** The drawn skirt of each tier, from terrain.ts: a plate is its rect grown by this. */
+      const COUNTRY_PAD = 1.6;
+      const DISTRICT_PAD = 0.6;
+      /** The ground stack in cells, from theme.ts. */
+      const GROUND = {
+        water: -1.2,
+        land: 0,
+        country: { top: 0.18, bottom: -0.68 },
+        district: { top: 0.36, bottom: -0.5 },
+      };
+      const TOWER = 0.8;
+      const CAP = 0.06;
+      const SHORE = 2.2;
+      const LAND = L.hsl(216, 0.14, 0.075);
+      const COAST = L.hsl(206, 0.18, 0.13);
+
+      const HUES = { apps: 28, libs: 212, docs: 95, plumbing: 220 };
+      function accentOf(family, variant) {
+        const v = Math.max(0, variant);
+        if (family === 'plumbing') {
+          return {
+            hue: HUES.plumbing,
+            s: 0.04,
+            l: 0.42 + Math.floor(v / 3) * 0.06 + (v % 3) * 0.02,
+          };
+        }
+        return {
+          hue: HUES[family] + ((v % 3) - 1) * 14,
+          s: 0.3,
+          l: 0.46 + Math.floor(v / 3) * 0.1,
+        };
+      }
+      const paint = {
+        plate: (a) => L.hsl(a.hue, a.s * 0.6, 0.3),
+        platform: (a) => L.hsl(a.hue, a.s * 0.75, 0.36),
+        tower: (a) => L.hsl(a.hue, a.s, a.l),
+        cap: (a) => L.hsl(a.hue, Math.min(1, a.s * 1.5), a.l + 0.08),
+      };
+
+      /** Continent local cells become world cells once, the way the shore board does it. */
+      function buildModel() {
+        const cts = LAYOUT.continents.map((ct) => ({
+          repo: ct.repo,
+          extent: ct.extent,
+          rect: {
+            x: ct.at.x - SHORE,
+            z: ct.at.z - SHORE,
+            w: ct.extent.w + 2 * SHORE,
+            h: ct.extent.h + 2 * SHORE,
+          },
+          at: ct.at,
+        }));
+        const byRepo = new Map(cts.map((c) => [c.repo, c]));
+        const repoOf = (n) => n.slice(0, n.indexOf(':'));
+        const countries = LAYOUT.countries.map((c) => {
+          const ct = byRepo.get(repoOf(c.n));
+          return { ...c, ct, wx: ct.at.x + c.x, wz: ct.at.z + c.z };
+        });
+        const byCountry = new Map(countries.map((c) => [c.n, c]));
+        const districts = LAYOUT.districts.map((d) => {
+          const c = byCountry.get(d.c);
+          return { ...d, country: c, wx: c.ct.at.x + d.x, wz: c.ct.at.z + d.z };
+        });
+        const blocks = LAYOUT.blocks.map((b) => {
+          const c = byCountry.get(b.c);
+          return { ...b, country: c, wx: c.ct.at.x + b.x, wz: c.ct.at.z + b.z };
+        });
+        const bounds = cts.reduce(
+          (a, c) => ({
+            x0: Math.min(a.x0, c.rect.x),
+            z0: Math.min(a.z0, c.rect.z),
+            x1: Math.max(a.x1, c.rect.x + c.rect.w),
+            z1: Math.max(a.z1, c.rect.z + c.rect.h),
+          }),
+          { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity },
+        );
+        return {
+          continents: cts,
+          countries,
+          districts,
+          blocks,
+          world: { x: bounds.x0, z: bounds.z0, w: bounds.x1 - bounds.x0, h: bounds.z1 - bounds.z0 },
+        };
+      }
+
+      const model = buildModel();
+      const centre = { x: model.world.x + model.world.w / 2, z: model.world.z + model.world.h / 2 };
+      const bend = L.bender({ centre }, L.WORLD_RADIUS);
+
+      /**
+       * The top of the tier stack per integer cell, which is what the floor clamp and the
+       * push-out both need. The layout is a grid, so the query is a map lookup and not a raycast.
+       */
+      const surface = new Map();
+      const key = (x, z) => `${x},${z}`;
+      const raise = (x0, z0, w, h, y) => {
+        for (let x = Math.floor(x0); x < Math.ceil(x0 + w); x++)
+          for (let z = Math.floor(z0); z < Math.ceil(z0 + h); z++) {
+            const k = key(x, z);
+            if (!(surface.get(k) >= y)) surface.set(k, y);
+          }
+      };
+      for (const ct of model.continents)
+        raise(ct.rect.x, ct.rect.z, ct.rect.w, ct.rect.h, GROUND.land);
+      for (const c of model.countries)
+        raise(
+          c.wx - COUNTRY_PAD / 2,
+          c.wz - COUNTRY_PAD / 2,
+          c.w + COUNTRY_PAD,
+          c.h + COUNTRY_PAD,
+          GROUND.country.top,
+        );
+      for (const d of model.districts)
+        raise(
+          d.wx - DISTRICT_PAD / 2,
+          d.wz - DISTRICT_PAD / 2,
+          d.w + DISTRICT_PAD,
+          d.h + DISTRICT_PAD,
+          GROUND.district.top,
+        );
+      const towerTop = new Map();
+      for (const b of model.blocks) {
+        const y = GROUND.district.top + b.y + CAP;
+        towerTop.set(key(b.wx, b.wz), y);
+        raise(b.wx, b.wz, 1, 1, y);
+      }
+      const surfaceAt = (x, z) => surface.get(key(Math.floor(x), Math.floor(z))) ?? GROUND.water;
+
+      const opts = {
+        scheme: 'heli',
+        look: 'drag',
+        width: 'half',
+        speedFloor: 3,
+        speedGain: 1.75,
+        speedPower: 1,
+        vmax: 240,
+        climb: 0.35,
+        upFloor: 2,
+        upCeiling: 40,
+        descent: 0.55,
+        downFloor: 3,
+        downCeiling: 60,
+        dip: 0.25,
+        diveGain: 0.8,
+        energyBleed: 0.18,
+        rush: 1.4,
+        lookAhead: 3,
+        climbFloor: 6,
+        boost: 4,
+        gimbal: 'locked',
+        fireRate: 9,
+        tracerSpeed: 190,
+        strikerRange: 72,
+        ringAmp: 2.8,
+        ringHz: 6,
+        ringDecay: 0.22,
+        recoil: 5.5,
+        shake: 1.1,
+        hitStop: 45,
+        flash: 0.3,
+        grappleRange: 60,
+        reelTime: 0.75,
+        standoff: 6,
+        volume: 0.35,
+        yawRate: 130,
+        tiltRatio: 0.5,
+        expo: 0.6,
+        leadSeconds: 1.2,
+        deadZone: 0.25,
+        punch: 3,
+        drag: 0.9,
+        brake: 3.2,
+        cushion: 5,
+        leanRest: 2.5,
+        leanSurge: 4,
+        leanIn: 0.06,
+        roll: 1.8,
+        bank: 5,
+        leanBoost: 1.5,
+        fovKick: 8,
+        lookUp: 35,
+        clearance: 0.45,
+        vignette: 0.55,
+        sens: 0.9,
+        smooth: 0.02,
+        fov: 50,
+        brakeDeg: 20,
+        floor: 0.15,
+        brake: 'sqrt',
+        collide: true,
+      };
+
+      const wrap = document.getElementById('stagewrap');
+      const stage = L.makeStage(760, 560, { fog: 0.0022 });
+      wrap.appendChild(stage.stage);
+      stage.stage.style.position = 'absolute';
+      stage.stage.style.inset = '0';
+      const canvas = stage.renderer.domElement;
+      canvas.tabIndex = 0;
+      canvas.style.outline = 'none';
+
+      const overlay = (cls, html) => {
+        const el = document.createElement('div');
+        el.className = cls;
+        if (html) el.innerHTML = html;
+        wrap.appendChild(el);
+        return el;
+      };
+      const vig = overlay('vig');
+      const dot = overlay('dot');
+      const read = overlay('read');
+      const way = overlay('way', 'Esc to leave');
+      const under = overlay('under');
+      const flash = overlay('flash');
+      const veil = overlay('veil', 'click to fly');
+
+      const mats = new Map();
+      const matOf = (color) => {
+        const k = color.getHex();
+        if (!mats.has(k))
+          mats.set(k, new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }));
+        return mats.get(k);
+      };
+      const box = new THREE.BoxGeometry(1, 1, 1);
+      const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+      const slab = (x, z, w, h, bottom, top, color) => {
+        const cx = x + w / 2;
+        const cz = z + h / 2;
+        const m = new THREE.Mesh(box, matOf(color));
+        m.position.copy(bend.at(cx, cz, (top + bottom) / 2));
+        m.quaternion.copy(L.orientation(bend, cx, cz));
+        m.scale.set(w, top - bottom, h);
+        stage.sc.add(m);
+      };
+      const sheet = (x, z, w, h, y, color) => {
+        const cx = x + w / 2;
+        const cz = z + h / 2;
+        const m = new THREE.Mesh(quad, matOf(color));
+        m.position.copy(bend.at(cx, cz, y));
+        m.quaternion.copy(L.orientation(bend, cx, cz));
+        m.scale.set(w, 1, h);
+        stage.sc.add(m);
+      };
+
+      const sea = L.ocean(bend, 1400, 70, 84);
+      sea.position.y += GROUND.water + 0.35;
+      stage.sc.add(sea);
+      for (const ct of model.continents) {
+        const r = ct.rect;
+        slab(r.x, r.z, r.w, r.h, -0.9, GROUND.land - 0.06, LAND);
+        sheet(r.x, r.z, r.w, r.h, GROUND.land, COAST);
+        sheet(ct.at.x, ct.at.z, ct.extent.w, ct.extent.h, GROUND.land + 0.01, LAND);
+      }
+      for (const c of model.countries) {
+        const p = COUNTRY_PAD / 2;
+        slab(
+          c.wx - p,
+          c.wz - p,
+          c.w + 2 * p,
+          c.h + 2 * p,
+          GROUND.country.bottom,
+          GROUND.country.top,
+          paint.plate(accentOf(c.f, c.v)),
+        );
+      }
+      for (const d of model.districts) {
+        const p = DISTRICT_PAD / 2;
+        slab(
+          d.wx - p,
+          d.wz - p,
+          d.w + 2 * p,
+          d.h + 2 * p,
+          GROUND.district.bottom,
+          GROUND.district.top,
+          paint.platform(accentOf(d.country.f, d.country.v)),
+        );
+      }
+
+      const towers = new THREE.InstancedMesh(
+        box,
+        new THREE.MeshStandardMaterial({ roughness: 0.75, flatShading: true }),
+        model.blocks.length,
+      );
+      const caps = new THREE.InstancedMesh(
+        box,
+        new THREE.MeshStandardMaterial({ roughness: 0.6, flatShading: true }),
+        model.blocks.length,
+      );
+      const m4 = new THREE.Matrix4();
+      const sc3 = new THREE.Vector3();
+      /** Kept so a struck tower can be recomposed about its foot instead of its middle. */
+      const towerFoot = [];
+      const towerQuat = [];
+      const baseColour = [];
+      const capColour = [];
+      model.blocks.forEach((b, i) => {
+        const a = accentOf(b.country.f, b.country.v);
+        const x = b.wx + 0.5;
+        const z = b.wz + 0.5;
+        const q = L.orientation(bend, x, z);
+        towerFoot.push(bend.at(x, z, GROUND.district.top));
+        towerQuat.push(q.clone());
+        baseColour.push(paint.tower(a));
+        capColour.push(paint.cap(a));
+        sc3.set(TOWER, b.y, TOWER);
+        m4.compose(bend.at(x, z, GROUND.district.top + b.y / 2), q, sc3);
+        towers.setMatrixAt(i, m4);
+        towers.setColorAt(i, paint.tower(a));
+        sc3.set(TOWER + 0.04, CAP, TOWER + 0.04);
+        m4.compose(bend.at(x, z, GROUND.district.top + b.y + CAP / 2), q, sc3);
+        caps.setMatrixAt(i, m4);
+        caps.setColorAt(i, paint.cap(a));
+      });
+      towers.instanceMatrix.needsUpdate = true;
+      caps.instanceMatrix.needsUpdate = true;
+      stage.sc.add(towers, caps);
+
+      /** Two invented agents, so that soft lock and the worksite read have a subject. */
+      const agents = [
+        { hue: 168, at: { ...pickBlock() }, to: pickBlock(), t: 0, mesh: null, light: null },
+        { hue: 318, at: { ...pickBlock() }, to: pickBlock(), t: 0, mesh: null, light: null },
+      ];
+      function pickBlock() {
+        const b = model.blocks[Math.floor(Math.random() * model.blocks.length)];
+        return { x: b.wx + 0.5, z: b.wz + 0.5, y: GROUND.district.top + b.y + 0.9 };
+      }
+      for (const a of agents) {
+        const colour = L.hsl(a.hue, 0.85, 0.62);
+        a.mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.22, 16, 12),
+          new THREE.MeshBasicMaterial({ color: colour }),
+        );
+        a.light = new THREE.PointLight(colour, 12, 26, 2);
+        stage.sc.add(a.mesh, a.light);
+      }
+
+      /**
+       * The drone is five numbers: a cell it stands over, a height above the local ground, and
+       * where it looks. Flying in lattice space keeps the curvature honest, since every position
+       * goes through the same bend the terrain does.
+       */
+      /**
+       * The entry pose: the Overview angle of 38 degrees, stood far enough back that both
+       * continents fit the frame, with the eye aimed at the world's centre rather than past it.
+       */
+      const START = (() => {
+        const halfWide = Math.atan(Math.tan((opts.fov * Math.PI) / 360) * (760 / 560));
+        const reach = (model.world.w * 1.25) / (2 * Math.tan(halfWide));
+        const back = reach * Math.cos(L.ELEVATION);
+        return {
+          // Stood back along the bearing, not along z, or the yaw walks the aim off the world.
+          x: centre.x + back * Math.sin(L.YAW),
+          z: centre.z + back * Math.cos(L.YAW),
+          alt: reach * Math.sin(L.ELEVATION),
+          bearing: L.YAW,
+          pitch: L.ELEVATION,
+        };
+      })();
+      const drone = { ...START };
+      /** Where the hand has pointed. The drone eases to it, so look is applied once a frame. */
+      const aim = { bearing: drone.bearing, pitch: drone.pitch };
+      const lookAcc = { x: 0, y: 0 };
+      /**
+       * The airframe, which is not the gimbal. `aim` is where the camera is pointed and answers
+       * the hand at once; `heading` is which way the drone is actually facing and swings round
+       * at a limited rate behind it. Flying uses the heading, so a whipped turn curves out of
+       * the old line instead of the whole machine pivoting on the spot.
+       */
+      let heading = drone.bearing;
+      /** The machine's own tilt, which is not the aim either once the gimbal is on the nose. */
+      let tilt = drone.pitch;
+      /** Carried in the drone's own frame, never the world's. See the turn note in step(). */
+      const vel = { f: 0, s: 0, u: 0 };
+      const held = new Set();
+      let locked = null;
+      let flying = false;
+      let speedNow = 0;
+      let climbNow = 0;
+      let capNow = 1;
+      let leanPitch = 0;
+      let leanRoll = 0;
+      let energy = 0;
+      let yawRateNow = 0;
+      let fovShown = 30;
+
+      const rad = (d) => (d * Math.PI) / 180;
+      /** How far above the floor the ground effect starts to bite, in cells. */
+      const CUSHION_REACH = 2;
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+      function groundHere() {
+        return surfaceAt(drone.x, drone.z);
+      }
+
+      function step(dt) {
+        if (performance.now() < hitStopUntil) return;
+        const above = Math.max(0.01, drone.alt - groundHere());
+        const base = Math.min(
+          opts.speedFloor + opts.speedGain * Math.pow(Math.max(0, above), opts.speedPower),
+          opts.vmax,
+        );
+        const gain =
+          held.has('ShiftLeft') || held.has('ShiftRight')
+            ? opts.boost
+            : held.has('ControlLeft')
+              ? 0.25
+              : 1;
+        const fwd = (held.has('KeyW') ? 1 : 0) - (held.has('KeyS') ? 1 : 0);
+        const strafe = (held.has('KeyD') ? 1 : 0) - (held.has('KeyA') ? 1 : 0);
+        const lift = (held.has('KeyE') ? 1 : 0) - (held.has('KeyQ') ? 1 : 0);
+        const speed = base * gain;
+        const up = clamp(speed * opts.climb, opts.upFloor, opts.upCeiling);
+        const down = clamp(speed * opts.descent, opts.downFloor, opts.downCeiling);
+
+        const len = Math.hypot(fwd, strafe, lift) || 1;
+        const thrusting = fwd !== 0 || strafe !== 0 || lift !== 0;
+        const heldFlat = Math.hypot(vel.f, vel.s);
+        const heldUp = vel.u;
+        const push = speed * opts.punch * dt;
+        vel.f += (fwd / len) * push;
+        vel.s += (strafe / len) * push;
+        vel.u += (lift / len) * push;
+
+        const decay = Math.exp(-(thrusting ? opts.drag : opts.brake) * dt);
+        vel.f *= decay;
+        vel.s *= decay;
+        vel.u *= lift !== 0 ? decay : Math.exp(-opts.brake * dt);
+
+        if (lift < 0 && vel.u < 0 && vel.f > 0)
+          energy += opts.diveGain * -vel.u * Math.min(1, vel.f / speed) * dt;
+        energy *= Math.exp(-opts.energyBleed * dt);
+        const allow = speed + energy;
+        capNow = allow;
+
+        const boosting = held.has('ShiftLeft') || held.has('ShiftRight');
+        const leanGain = boosting ? opts.leanBoost : 1;
+        const surge = fwd > 0 ? clamp(1 - vel.f / allow, 0, 1) : 0;
+        const rest = opts.leanRest * leanGain * (fwd / len);
+        const nose = rest + opts.leanSurge * leanGain * surge;
+        const kNose = 1 - Math.exp(-dt / (nose > leanPitch ? opts.leanIn : 0.2));
+        leanPitch += (nose - leanPitch) * kNose;
+        const kLean = 1 - Math.exp(-dt / 0.2);
+        const turning = clamp(-yawRateNow / rad(opts.yawRate), -1, 1);
+        const moving = Math.min(1, Math.hypot(vel.f, vel.s) / allow);
+        const roll = (opts.roll * (strafe / len) + opts.bank * turning * moving) * leanGain;
+        leanRoll += (roll - leanRoll) * kLean;
+
+        if (fwd > 0 && lift === 0) {
+          const over = Math.max(0, leanPitch - rest) / (opts.leanSurge * leanGain);
+          vel.u -= opts.dip * down * over * opts.punch * dt;
+        }
+
+        const flat = Math.hypot(vel.f, vel.s);
+        if (flat > allow && flat > heldFlat) {
+          const trim = allow / flat;
+          vel.f *= trim;
+          vel.s *= trim;
+        }
+        if (vel.u > up && vel.u > heldUp) vel.u = up;
+        if (vel.u < -down && vel.u < heldUp) vel.u = -down;
+
+        /*
+         * The ramp is spent in the drone's frame and only then turned into the world, so a turn
+         * carries the momentum round with it. Easing a world velocity instead leaves the drone
+         * sliding the old way for a whole ramp after the view has already come round, which
+         * reads as the picture lagging the hand rather than as mass.
+         */
+        const sb = Math.sin(heading);
+        const cb = Math.cos(heading);
+        // Bearing zero looks down the lattice's negative z, matching the Overview yaw.
+        const dip = opts.scheme === 'noclip' ? Math.cos(drone.pitch) : 1;
+        const climb = opts.scheme === 'noclip' ? -Math.sin(drone.pitch) : 0;
+        const vx = vel.f * dip * -sb + vel.s * cb;
+        const vz = vel.f * dip * -cb + vel.s * -sb;
+        const vy = vel.u + vel.f * climb;
+
+        drone.x += vx * dt;
+        drone.z += vz * dt;
+        drone.alt += vy * dt;
+        speedNow = Math.hypot(vx, vz, vy);
+        climbNow = vy;
+
+        if (opts.collide) {
+          const floor = groundHere() + opts.clearance;
+          const flatSpeed = Math.hypot(vx, vz);
+          const ahead =
+            flatSpeed > 1e-4
+              ? surfaceAt(
+                  drone.x + (vx / flatSpeed) * opts.lookAhead,
+                  drone.z + (vz / flatSpeed) * opts.lookAhead,
+                ) + opts.clearance
+              : floor;
+          const want = Math.max(floor, ahead);
+          const gap = drone.alt - floor;
+          /*
+           * Ground effect. The descent it is allowed shrinks to nothing as the floor comes up,
+           * so the drone settles onto it. A bare clamp stops a forty cell a second dive inside
+           * one frame, which reads as hitting a table rather than as landing.
+           */
+          if (gap < CUSHION_REACH) {
+            const limit = -(Math.max(0, gap) * opts.cushion + 0.15);
+            if (vel.u < limit) vel.u = limit;
+          }
+          if (drone.alt < want) {
+            const reach = (want - drone.alt) * (flatSpeed / opts.lookAhead);
+            drone.alt = Math.min(want, drone.alt + Math.max(opts.climbFloor, reach) * dt);
+          }
+          if (drone.alt < floor) {
+            drone.alt = floor;
+            if (vel.u < 0) vel.u = 0;
+          }
+        }
+        drone.alt = clamp(drone.alt, GROUND.water, 1200);
+
+        const wantFov =
+          opts.fov + opts.fovKick * Math.min(opts.rush, speedNow / Math.max(1, capNow)) + fovPunch;
+        fovShown += (wantFov - fovShown) * (1 - Math.exp(-dt / 0.28));
+
+        if (locked) {
+          const p = bend.at(locked.at.x, locked.at.z, locked.at.y);
+          const e = bend.at(drone.x, drone.z, drone.alt);
+          const d = p.clone().sub(e);
+          const up = bend.normal(drone.x, drone.z);
+          const q0 = L.orientation(bend, drone.x, drone.z).invert();
+          const local = d.clone().applyQuaternion(q0);
+          const wantBearing = Math.atan2(-local.x, -local.z);
+          const wantPitch = Math.atan2(-local.y, Math.hypot(local.x, local.z));
+          const kk = 1 - Math.exp(-dt / 0.2);
+          let delta = wantBearing - aim.bearing;
+          while (delta > Math.PI) delta -= 2 * Math.PI;
+          while (delta < -Math.PI) delta += 2 * Math.PI;
+          aim.bearing += delta * kk;
+          aim.pitch += (wantPitch - aim.pitch) * kk;
+          void up;
+        }
+        aim.pitch = clamp(aim.pitch, -rad(opts.lookUp), rad(85));
+      }
+
+      const qYaw = new THREE.Quaternion();
+      const qPitch = new THREE.Quaternion();
+      const qRoll = new THREE.Quaternion();
+      const AX_Y = new THREE.Vector3(0, 1, 0);
+      const AX_X = new THREE.Vector3(1, 0, 0);
+      const AX_Z = new THREE.Vector3(0, 0, 1);
+
+      let fovApplied = -1;
+      function place() {
+        if (Math.abs(fovShown - fovApplied) > 0.01) {
+          stage.camera.fov = fovShown;
+          stage.camera.updateProjectionMatrix();
+          fovApplied = fovShown;
+        }
+        stage.camera.position.copy(bend.at(drone.x, drone.z, drone.alt));
+        const q = L.orientation(bend, drone.x, drone.z);
+        const jx = shake > 1e-5 ? (Math.random() * 2 - 1) * shake : 0;
+        const jy = shake > 1e-5 ? (Math.random() * 2 - 1) * shake : 0;
+        qYaw.setFromAxisAngle(AX_Y, drone.bearing + jx);
+        qPitch.setFromAxisAngle(AX_X, -(drone.pitch + rad(leanPitch) + recoil + jy));
+        qRoll.setFromAxisAngle(AX_Z, rad(-leanRoll));
+        stage.camera.quaternion.copy(q).multiply(qYaw).multiply(qPitch).multiply(qRoll);
+      }
+
+      const ray = new THREE.Raycaster();
+      const CENTRE = new THREE.Vector2(0, 0);
+      function underReticle() {
+        ray.setFromCamera(CENTRE, stage.camera);
+        const hit = ray.intersectObject(towers, false)[0];
+        if (!hit || hit.instanceId === undefined) return null;
+        const b = model.blocks[hit.instanceId];
+        return { b, i: hit.instanceId, distance: hit.distance, point: hit.point.clone() };
+      }
+
+      function nearestAgent() {
+        let best = null;
+        let bestDot = 0.9;
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(stage.camera.quaternion);
+        for (const a of agents) {
+          const d = bend.at(a.at.x, a.at.z, a.at.y).sub(stage.camera.position).normalize();
+          const dp = d.dot(fwd);
+          if (dp > bestDot) {
+            bestDot = dp;
+            best = a;
+          }
+        }
+        return best;
+      }
+
+      function agentsStep(dt) {
+        for (const a of agents) {
+          const dx = a.to.x - a.at.x;
+          const dz = a.to.z - a.at.z;
+          const dy = a.to.y - a.at.y;
+          const d = Math.hypot(dx, dz);
+          if (d < 0.35) {
+            a.t += dt;
+            if (a.t > 2.5) {
+              a.to = pickBlock();
+              a.t = 0;
+            }
+          } else {
+            const v = (3.5 * dt) / d;
+            a.at.x += dx * v;
+            a.at.z += dz * v;
+            a.at.y += dy * v;
+          }
+          const p = bend.at(a.at.x, a.at.z, a.at.y);
+          a.mesh.position.copy(p);
+          a.light.position.copy(p);
+          const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 260);
+          a.mesh.scale.setScalar(pulse);
+        }
+      }
+
+      let last = performance.now();
+      /**
+       * The lead is a stick deflection: bounded, signed, and back to zero once the nose has caught
+       * up. So the turn rate is a shaped function of it, the way a drone's rates work, rather than
+       * a spring chasing an angle. Betaflight's three knobs map straight onto it: the gain sets
+       * how much deflection a hand movement buys, expo softens the middle without costing the
+       * ends, and the yaw rate is the deflection at full stick.
+       *
+       * The whole point is that rate is a pure function of the current error and nothing is
+       * carried between frames. It cannot overshoot, because the rate always points at closing the
+       * lead. It cannot ring, because there is no velocity to oscillate. It cannot run away,
+       * because nothing accumulates. The spiral, the wild gimbal and the blow-up on a long frame
+       * were three faces of one mistake, which was keeping velocity state in the rotation at all.
+       */
+      function leadCapFor(rateCap) {
+        return rateCap * opts.leadSeconds;
+      }
+
+      function turnFor(lead, rateCap, dt) {
+        const dead = rad(opts.deadZone);
+        const mag = Math.abs(lead);
+        if (mag <= dead) return 0;
+        const span = Math.max(1e-6, leadCapFor(rateCap) - dead);
+        const past = mag - dead;
+        const u = Math.min(1, past / span);
+        const t = Math.min(1, past / rad(opts.brakeDeg));
+        const eased = opts.brake === 'sqrt' ? Math.sqrt(t) : t * t * (3 - 2 * t);
+        const curve = (1 - opts.expo) * u + opts.expo * u * u * u;
+        const shaped = Math.max(curve, opts.floor * eased);
+        const step = Math.sign(lead) * rateCap * shaped * dt;
+        // Never step past the target, whatever the frame length was.
+        return Math.abs(step) > mag ? lead : step;
+      }
+
+      function gimbalStep(dt) {
+        let lead = aim.bearing - heading;
+        while (lead > Math.PI) lead -= 2 * Math.PI;
+        while (lead < -Math.PI) lead += 2 * Math.PI;
+        const yawCap = rad(opts.yawRate);
+        const turned = turnFor(lead, yawCap, dt);
+        heading += turned;
+        yawRateNow = dt > 0 ? turned / dt : 0;
+        const tiltCap = yawCap * opts.tiltRatio;
+        tilt = clamp(tilt + turnFor(aim.pitch - tilt, tiltCap, dt), -rad(opts.lookUp), rad(85));
+      }
+
+      /** Spends the hand's accumulated look once a frame, so the rate cannot depend on event count. */
+      function applyLook(dt) {
+        if (lookAcc.x || lookAcc.y) {
+          // ORBIT_TURNS = 1 in view.ts: a full turn of bearing per screen height dragged.
+          const perPixel = rad(0.58) * opts.sens;
+          aim.bearing -= lookAcc.x * perPixel;
+          aim.pitch = clamp(aim.pitch + lookAcc.y * perPixel, -rad(opts.lookUp), rad(85));
+          lookAcc.x = lookAcc.y = 0;
+        }
+        /*
+         * The gimbal may only ask for what the machine is about to be able to deliver. Left
+         * unbounded a long sweep banks hundreds of degrees for the nose to work through after the
+         * hand has stopped, and the moment the gap passes half a turn the shortest path flips and
+         * the nose turns away from where it was sent. The lead is held to a fixed number of
+         * seconds of travel, so it scales with the yaw rate and can never come near half a turn.
+         *
+         * Only when the gimbal is on the nose. A free gimbal is the camera itself, so it must be
+         * allowed to whip anywhere at once, and there the wrap is right: the nose should take the
+         * short way round to whatever the eye is already looking at.
+         */
+        if (opts.gimbal === 'locked') {
+          const yawCap = leadCapFor(rad(opts.yawRate));
+          let lead = aim.bearing - heading;
+          while (lead > Math.PI) lead -= 2 * Math.PI;
+          while (lead < -Math.PI) lead += 2 * Math.PI;
+          if (lead > yawCap) aim.bearing = heading + yawCap;
+          else if (lead < -yawCap) aim.bearing = heading - yawCap;
+          // The tilt was never bounded, so a vertical sweep banked seconds of travel the
+          // horizontal one could not, and the two axes stopped feeling like one machine.
+          const tiltCap = leadCapFor(rad(opts.yawRate) * opts.tiltRatio);
+          aim.pitch = clamp(aim.pitch, tilt - tiltCap, tilt + tiltCap);
+        }
+
+        // Bolted to the airframe, the view can only turn as fast as the nose does.
+        if (opts.gimbal === 'locked') {
+          drone.bearing = heading;
+          drone.pitch = tilt;
+          return;
+        }
+        if (opts.smooth < 0.005) {
+          drone.bearing = aim.bearing;
+          drone.pitch = aim.pitch;
+          return;
+        }
+        const k = 1 - Math.exp(-dt / opts.smooth);
+        let d = aim.bearing - drone.bearing;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        drone.bearing += d * k;
+        drone.pitch += (aim.pitch - drone.pitch) * k;
+      }
+
+      /**
+       * The readout costs a style recalc and the reticle costs a raycast over every tower, so
+       * both run well below the frame rate and after the picture has gone out.
+       */
+      let hudAt = 0;
+      let vigNow = -1;
+      /** Free: how far the view has run ahead of the nose. Locked: how far the hand has. */
+      function crabOf() {
+        let d =
+          ((opts.gimbal === 'locked' ? aim.bearing - heading : heading - drone.bearing) * 180) /
+          Math.PI;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        return d;
+      }
+
+      function hud(now) {
+        const v = (speedNow / Math.max(1, opts.vmax)) ** 0.35 * opts.vignette;
+        if (Math.abs(v - vigNow) > 0.004) {
+          vig.style.opacity = String(v);
+          vigNow = v;
+        }
+        if (now - hudAt < 120) return;
+        hudAt = now;
+        const above = drone.alt - groundHere();
+        const focus = drone.pitch > 1e-4 ? above / Math.tan(drone.pitch) : NaN;
+        const hit = underReticle();
+        under.textContent = hit
+          ? `${hit.b.c.replace(/^[^:]*:/, '')}${hit.b.d ? '/' + hit.b.d : ''}`
+          : '';
+        read.innerHTML =
+          `alt <b>${above.toFixed(1)}</b> cells<br>` +
+          `speed <b>${speedNow.toFixed(1)}</b> cells/s<br>` +
+          `climb <b>${climbNow >= 0 ? '+' : ''}${climbNow.toFixed(1)}</b> cells/s<br>` +
+          `${opts.gimbal === 'locked' ? 'lead' : 'crab'} <b>${crabOf().toFixed(0)}</b>&deg;<br>` +
+          `pitch <b>${((drone.pitch * 180) / Math.PI).toFixed(1)}</b>&deg;<br>` +
+          `focus ahead <b>${Number.isFinite(focus) ? focus.toFixed(0) + '</b> cells' : 'none</b>'}` +
+          (locked ? '<br><i>locked</i>' : '');
+      }
+
+      function tick(now) {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        agentsStep(dt);
+        weaponStep(dt, now);
+        if (flying) {
+          gimbalStep(dt);
+          step(dt);
+        } else fovShown = opts.fov;
+
+        // The kick is a critically damped return, like every other spring on the panel.
+        const wRec = 1 / 0.085;
+        recoilVel += (wRec * wRec * -recoil - 2 * wRec * recoilVel) * dt;
+        recoil += recoilVel * dt;
+        shake *= Math.exp(-dt / 0.045);
+        fovPunch *= Math.exp(-dt / 0.16);
+        const fadeFlash = +flash.style.opacity * Math.exp(-dt / 0.028);
+        flash.style.opacity = fadeFlash < 0.004 ? '0' : String(fadeFlash);
+
+        applyLook(dt);
+        place();
+        stage.renderer.render(stage.sc, stage.camera);
+        hud(now);
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      function resize() {
+        const w = wrap.clientWidth;
+        const h = 560;
+        stage.renderer.setSize(w, h, false);
+        stage.camera.aspect = w / h;
+        stage.camera.updateProjectionMatrix();
+      }
+
+      function setWidth(v) {
+        opts.width = v;
+        wrap.className = 'stagewrap ' + v;
+        wrap.style.height = '560px';
+        requestAnimationFrame(resize);
+      }
+
+      /** Eases the whole pose, which is what Home does and what a vantage key does. */
+      function glideTo(to, ms = 1200) {
+        const from = { ...drone };
+        const t0 = performance.now();
+        locked = null;
+        const ease = (k) => 1 - Math.pow(1 - k, 3);
+        const run = () => {
+          const k = Math.min(1, (performance.now() - t0) / ms);
+          const e = ease(k);
+          drone.x = from.x + (to.x - from.x) * e;
+          drone.z = from.z + (to.z - from.z) * e;
+          drone.alt = from.alt + (to.alt - from.alt) * e;
+          let delta = to.bearing - from.bearing;
+          while (delta > Math.PI) delta -= 2 * Math.PI;
+          while (delta < -Math.PI) delta += 2 * Math.PI;
+          drone.bearing = from.bearing + delta * e;
+          drone.pitch = from.pitch + (to.pitch - from.pitch) * e;
+          aim.bearing = drone.bearing;
+          aim.pitch = drone.pitch;
+          heading = drone.bearing;
+          tilt = drone.pitch;
+          if (k < 1) requestAnimationFrame(run);
+        };
+        run();
+      }
+
+      /** Home: the one move that re-grounds the reader, back to the canonical yaw. */
+      const home = () => glideTo(START);
+
+      /**
+       * Four vantages the board is meant to be judged from, so the reads that matter are
+       * reachable without flying to them and are the same every time the board is opened.
+       */
+      const countryAt = (name) => model.countries.find((c) => c.n === name) ?? model.countries[0];
+      /** Stands the eye at a pose and points it at a place, so no vantage carries a hand-picked angle. */
+      const aimed = (eye, at) => {
+        const dx = at.x - eye.x;
+        const dz = at.z - eye.z;
+        const flat = Math.hypot(dx, dz);
+        return {
+          ...eye,
+          bearing: Math.atan2(-dx, -dz),
+          pitch: clamp(Math.atan2(eye.alt - (at.y ?? 0), flat), -rad(opts.lookUp), rad(85)),
+        };
+      };
+      const VANTAGE = [
+        () => START,
+        () => {
+          const c = countryAt('strata:packages/core');
+          const eye = { x: c.wx - 7, z: c.wz - 7, alt: surfaceAt(c.wx, c.wz) + 1.7 };
+          return aimed(eye, { x: c.wx + c.w, z: c.wz + c.h, y: GROUND.district.top + 1 });
+        },
+        () => {
+          const c = countryAt('strata:packages/web');
+          const mid = { x: c.wx + c.w / 2, z: c.wz + c.h / 2 };
+          const eye = { x: mid.x - 4, z: mid.z - 4, alt: surfaceAt(mid.x, mid.z) + 2.2 };
+          return aimed(eye, { ...mid, y: GROUND.district.top + 1.1 });
+        },
+        () => {
+          const a = model.continents[0];
+          const b = model.continents[1];
+          const gap = (a.rect.x + a.rect.w + b.rect.x) / 2;
+          const eye = { x: gap, z: b.rect.z - 22, alt: 4.5 };
+          return aimed(eye, { x: b.rect.x + b.rect.w / 2, z: b.rect.z + b.rect.h / 2, y: 1 });
+        },
+      ];
+
+      /*
+       * The weapons. Two triggers on one system: the striker is full auto and percussive, the
+       * grapple is a single shot that reels the drone to what it bit. Both resolve as hitscan and
+       * both animate a round travelling, which is what most shooters do: the shot must be honest
+       * about where it landed, and the tracer only has to be honest about the journey.
+       *
+       * Nothing is destroyed and nothing changes state. What a hit buys is a reaction, and the
+       * reaction is where the whole feeling lives.
+       */
+      const WHITE = new THREE.Color(1, 1, 1);
+      const SHOT = new THREE.Color(0.62, 0.91, 1);
+      const tmpC = new THREE.Color();
+      const tmpV = new THREE.Vector3();
+      const tmpQ = new THREE.Quaternion();
+      const tmpM = new THREE.Matrix4();
+      const mRot = new THREE.Matrix4();
+      const mUp = new THREE.Matrix4();
+      const mScale = new THREE.Matrix4();
+      const FWD = new THREE.Vector3(0, 0, 1);
+
+      let hitStopUntil = 0;
+      let recoil = 0;
+      let recoilVel = 0;
+      let shake = 0;
+      let fovPunch = 0;
+      let nextRound = 0;
+
+      // ---- sound -------------------------------------------------------------------------
+      /*
+       * Synthesised rather than sampled, so the board carries no assets. A hit is pitched by the
+       * tower it lands on, which turns the codebase into tuned percussion: a big file answers
+       * lower than a small one, and a district has a chord.
+       */
+      let ac = null;
+      let noiseBuf = null;
+      function audio() {
+        if (opts.volume <= 0) return null;
+        if (!ac) {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (!Ctx) return null;
+          ac = new Ctx();
+          const n = Math.floor(ac.sampleRate * 0.25);
+          noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+          const d = noiseBuf.getChannelData(0);
+          for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+        }
+        if (ac.state === 'suspended') ac.resume();
+        return ac;
+      }
+      function noise(gain, freq, q, decay, sweepTo) {
+        const c = audio();
+        if (!c) return;
+        const t = c.currentTime;
+        const src = c.createBufferSource();
+        src.buffer = noiseBuf;
+        src.loop = true;
+        const f = c.createBiquadFilter();
+        f.type = 'bandpass';
+        f.frequency.setValueAtTime(freq, t);
+        if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + decay);
+        f.Q.value = q;
+        const g = c.createGain();
+        g.gain.setValueAtTime(gain * opts.volume, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+        src.connect(f).connect(g).connect(c.destination);
+        src.start(t);
+        src.stop(t + decay + 0.02);
+      }
+      function shotSound() {
+        noise(0.5, 1500, 0.7, 0.09, 600);
+        const c = audio();
+        if (!c) return;
+        const t = c.currentTime;
+        const o = c.createOscillator();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(190, t);
+        o.frequency.exponentialRampToValueAtTime(58, t + 0.09);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0.5 * opts.volume, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+        o.connect(g).connect(c.destination);
+        o.start(t);
+        o.stop(t + 0.13);
+      }
+      function hitSound(height) {
+        const c = audio();
+        if (!c) return;
+        const t = c.currentTime;
+        // A tall tower is a long bar: it answers lower.
+        const f = 700 * Math.pow(2, -(height - 0.8) * 1.1);
+        for (const [mul, amp, dec] of [
+          [1, 0.34, 0.3],
+          [2.02, 0.16, 0.19],
+          [3.01, 0.07, 0.12],
+        ]) {
+          const o = c.createOscillator();
+          o.type = 'triangle';
+          o.frequency.value = f * mul;
+          const g = c.createGain();
+          g.gain.setValueAtTime(amp * opts.volume, t);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+          o.connect(g).connect(c.destination);
+          o.start(t);
+          o.stop(t + dec + 0.02);
+        }
+      }
+      const reelSound = () => noise(0.28, 320, 1.4, 0.45, 1500);
+      const releaseSound = () => noise(0.3, 1800, 1.1, 0.25, 300);
+
+      // ---- tracers -----------------------------------------------------------------------
+      const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
+      const tracerMat = new THREE.MeshBasicMaterial({
+        color: SHOT,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const tracers = [];
+      for (let i = 0; i < 28; i++) {
+        const m = new THREE.Mesh(tracerGeo, tracerMat);
+        m.visible = false;
+        m.frustumCulled = false;
+        stage.sc.add(m);
+        tracers.push({ mesh: m, live: false });
+      }
+      function launch(from, to, onArrive, fat) {
+        const slot = tracers.find((t) => !t.live);
+        if (!slot) return;
+        const dir = to.clone().sub(from);
+        const dist = dir.length();
+        if (dist < 1e-4) return;
+        dir.normalize();
+        /*
+         * The round is drawn from a little ahead of the lens, never from it. A dash that starts
+         * at the muzzle is a few centimetres from the eye on its first frames and fills the
+         * screen, which reads as a laser rather than as something leaving the barrel. The flash
+         * covers the gap, which is what it is for.
+         */
+        const skip = Math.min(3.2, dist * 0.4);
+        slot.live = true;
+        slot.from = from.clone().addScaledVector(dir, skip);
+        slot.dir = dir;
+        slot.dist = dist - skip;
+        slot.travelled = 0;
+        slot.onArrive = onArrive;
+        slot.fat = fat ? 2.2 : 1;
+        slot.mesh.quaternion.setFromUnitVectors(FWD, dir);
+        slot.mesh.visible = true;
+      }
+
+      // ---- impact ------------------------------------------------------------------------
+      const struck = new Map();
+      const capLit = new Map();
+
+      const shockGeo = new THREE.RingGeometry(0.72, 1, 40).rotateX(-Math.PI / 2);
+      const shocks = [];
+      for (let i = 0; i < 14; i++) {
+        const m = new THREE.Mesh(
+          shockGeo,
+          new THREE.MeshBasicMaterial({
+            color: SHOT,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        m.visible = false;
+        stage.sc.add(m);
+        shocks.push({ mesh: m, t: 1e9 });
+      }
+
+      const SPARKS = 260;
+      const sparkPos = new Float32Array(SPARKS * 3);
+      const sparkVel = new Float32Array(SPARKS * 3);
+      const sparkLife = new Float32Array(SPARKS);
+      let sparkNext = 0;
+      const sparkGeo = new THREE.BufferGeometry();
+      sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+      const sparkPts = new THREE.Points(
+        sparkGeo,
+        new THREE.PointsMaterial({
+          color: SHOT,
+          size: 0.09,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      sparkPts.frustumCulled = false;
+      stage.sc.add(sparkPts);
+
+      function impact(i, point, dir, hard) {
+        const b = model.blocks[i];
+        // The tilt axis is across the shot, so the tower leans away from what hit it.
+        const local = dir.clone().applyQuaternion(towerQuat[i].clone().invert());
+        const axis = new THREE.Vector3(-local.z, 0, local.x);
+        if (axis.lengthSq() < 1e-6) axis.set(1, 0, 0);
+        struck.set(i, {
+          t0: performance.now() / 1000,
+          axis: axis.normalize(),
+          gain: hard ? 1.8 : 1,
+        });
+        capLit.set(i, performance.now() / 1000);
+
+        const shock = shocks.reduce((a, c) => (c.t < a.t ? a : c));
+        shock.t = 0;
+        shock.hard = hard;
+        shock.mesh.position.copy(towerFoot[i]);
+        shock.mesh.quaternion.copy(towerQuat[i]);
+        shock.mesh.visible = true;
+
+        const n = hard ? 16 : 7;
+        for (let k = 0; k < n; k++) {
+          const j = sparkNext++ % SPARKS;
+          sparkPos[j * 3] = point.x;
+          sparkPos[j * 3 + 1] = point.y;
+          sparkPos[j * 3 + 2] = point.z;
+          const sp = (hard ? 3.4 : 2.2) * (0.4 + Math.random());
+          sparkVel[j * 3] = (Math.random() * 2 - 1) * sp - dir.x * sp * 0.5;
+          sparkVel[j * 3 + 1] = Math.random() * sp * 1.2;
+          sparkVel[j * 3 + 2] = (Math.random() * 2 - 1) * sp - dir.z * sp * 0.5;
+          sparkLife[j] = 0.34 + Math.random() * 0.3;
+        }
+        hitSound(b.y);
+      }
+
+      // ---- the grapple ---------------------------------------------------------------------
+      const cableGeo = new THREE.BoxGeometry(1, 1, 1);
+      const cable = new THREE.Mesh(
+        cableGeo,
+        new THREE.MeshBasicMaterial({
+          color: SHOT,
+          transparent: true,
+          opacity: 0.5,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      cable.visible = false;
+      cable.frustumCulled = false;
+      stage.sc.add(cable);
+      let reel = null;
+
+      function muzzle() {
+        // Just under the eye, so a round leaves the frame rather than the exact centre of it.
+        return stage.camera.localToWorld(new THREE.Vector3(0.25, -0.32, -0.6));
+      }
+
+      function kick(power, stop) {
+        recoilVel -= rad(opts.recoil) * 11 * power;
+        shake = rad(opts.shake) * power;
+        fovPunch = -2.4 * power;
+        // Hit stop belongs to one heavy shot. Nobody freezes a machine gun.
+        if (stop) hitStopUntil = performance.now() + opts.hitStop * power;
+        flash.style.opacity = String(opts.flash * power);
+        shotSound();
+      }
+
+      function striker(now) {
+        if (now < nextRound) return;
+        nextRound = now + 1000 / opts.fireRate;
+        const hit = underReticle();
+        const from = muzzle();
+        const inRange = hit && hit.distance <= opts.strikerRange;
+        const to = inRange
+          ? hit.point
+          : from
+              .clone()
+              .add(stage.camera.getWorldDirection(tmpV).clone().multiplyScalar(opts.strikerRange));
+        const i = inRange ? hit.i : -1;
+        launch(from, to, i >= 0 ? (p, d) => impact(i, p, d, false) : null, false);
+        kick(1, false);
+      }
+
+      function grapple() {
+        const hit = underReticle();
+        const from = muzzle();
+        if (!hit || hit.distance > opts.grappleRange) {
+          launch(
+            from,
+            from
+              .clone()
+              .add(stage.camera.getWorldDirection(tmpV).clone().multiplyScalar(opts.grappleRange)),
+            null,
+            true,
+          );
+          kick(1.2, true);
+          return;
+        }
+        const i = hit.i;
+        const b = model.blocks[i];
+        launch(
+          from,
+          hit.point,
+          (p, d) => {
+            impact(i, p, d, true);
+            const tx = b.wx + 0.5;
+            const tz = b.wz + 0.5;
+            const back = opts.standoff;
+            reel = {
+              t: 0,
+              from: { x: drone.x, z: drone.z, alt: drone.alt },
+              to: {
+                x: tx + Math.sin(drone.bearing) * back,
+                z: tz + Math.cos(drone.bearing) * back,
+                alt: Math.max(surfaceAt(tx, tz) + 1.3, GROUND.district.top + b.y + 1.1),
+              },
+              anchor: p.clone(),
+            };
+            fovPunch = 6;
+            reelSound();
+          },
+          true,
+        );
+        kick(1.2, true);
+      }
+
+      function weaponStep(dt, now) {
+        const nowSec = now / 1000;
+        if (flying && held.has('Space')) striker(now);
+
+        for (const t of tracers) {
+          if (!t.live) continue;
+          t.travelled += opts.tracerSpeed * dt;
+          const done = t.travelled >= t.dist;
+          const d = Math.min(t.travelled, t.dist);
+          // A dash rather than a beam: long enough to read as a round, short enough to travel.
+          const len = Math.min(2.6 * t.fat, d);
+          t.mesh.position.copy(t.from).addScaledVector(t.dir, d - len / 2);
+          t.mesh.scale.set(0.045 * t.fat, 0.045 * t.fat, len);
+          if (done) {
+            t.live = false;
+            t.mesh.visible = false;
+            if (t.onArrive) t.onArrive(t.from.clone().addScaledVector(t.dir, t.dist), t.dir);
+          }
+        }
+
+        for (const s of shocks) {
+          if (s.t > 1) {
+            s.mesh.visible = false;
+            continue;
+          }
+          s.t += dt / (s.hard ? 0.55 : 0.4);
+          const k = Math.min(1, s.t);
+          s.mesh.scale.setScalar(0.5 + k * (s.hard ? 5.5 : 3.4));
+          s.mesh.material.opacity = (1 - k) * (1 - k) * 0.85;
+        }
+
+        let anySpark = false;
+        for (let j = 0; j < SPARKS; j++) {
+          if (sparkLife[j] <= 0) continue;
+          anySpark = true;
+          sparkLife[j] -= dt;
+          sparkVel[j * 3 + 1] -= 9 * dt;
+          sparkPos[j * 3] += sparkVel[j * 3] * dt;
+          sparkPos[j * 3 + 1] += sparkVel[j * 3 + 1] * dt;
+          sparkPos[j * 3 + 2] += sparkVel[j * 3 + 2] * dt;
+          if (sparkLife[j] <= 0) sparkPos[j * 3 + 1] = -9999;
+        }
+        if (anySpark) sparkGeo.attributes.position.needsUpdate = true;
+
+        for (const [i, at] of struck) {
+          const age = nowSec - at.t0;
+          const env = Math.exp(-age / opts.ringDecay);
+          if (env < 0.02) {
+            struck.delete(i);
+            recompose(i, 0, at.axis);
+            continue;
+          }
+          recompose(
+            i,
+            rad(opts.ringAmp) * at.gain * env * Math.sin(age * opts.ringHz * 6.2832),
+            at.axis,
+          );
+        }
+        if (capLit.size) {
+          for (const [i, at] of capLit) {
+            const k = 1 - (nowSec - at) / 0.28;
+            if (k <= 0) {
+              capLit.delete(i);
+              caps.setColorAt(i, capColour[i]);
+            } else {
+              caps.setColorAt(i, tmpC.copy(capColour[i]).lerp(WHITE, k));
+            }
+          }
+          caps.instanceColor.needsUpdate = true;
+        }
+
+        if (reel) {
+          reel.t += dt / opts.reelTime;
+          const k = Math.min(1, reel.t);
+          const e = 1 - Math.pow(1 - k, 3);
+          drone.x = reel.from.x + (reel.to.x - reel.from.x) * e;
+          drone.z = reel.from.z + (reel.to.z - reel.from.z) * e;
+          drone.alt = reel.from.alt + (reel.to.alt - reel.from.alt) * e;
+          vel.f = vel.s = vel.u = 0;
+          const eye = stage.camera.position;
+          const span = reel.anchor.clone().sub(eye);
+          const len = span.length();
+          cable.position.copy(eye).addScaledVector(span.normalize(), len / 2);
+          cable.quaternion.setFromUnitVectors(FWD, span);
+          cable.scale.set(0.035, 0.035, len);
+          cable.material.opacity = 0.5 * (1 - k * 0.6);
+          cable.visible = true;
+          if (k >= 1) {
+            reel = null;
+            cable.visible = false;
+            releaseSound();
+          }
+        }
+      }
+
+      /** Rebuilds a tower and its cap about the foot, so a struck one leans instead of sliding. */
+      function recompose(i, angle, axis) {
+        const b = model.blocks[i];
+        tmpQ.copy(towerQuat[i]);
+        if (angle !== 0) tmpQ.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));
+        mRot.makeRotationFromQuaternion(tmpQ);
+        tmpM.makeTranslation(towerFoot[i].x, towerFoot[i].y, towerFoot[i].z).multiply(mRot);
+        mUp.makeTranslation(0, b.y / 2, 0);
+        mScale.makeScale(TOWER, b.y, TOWER);
+        towers.setMatrixAt(i, tmpM.clone().multiply(mUp).multiply(mScale));
+        mUp.makeTranslation(0, b.y + CAP / 2, 0);
+        mScale.makeScale(TOWER + 0.04, CAP, TOWER + 0.04);
+        caps.setMatrixAt(i, tmpM.multiply(mUp).multiply(mScale));
+        towers.instanceMatrix.needsUpdate = true;
+        caps.instanceMatrix.needsUpdate = true;
+      }
+
+      function start() {
+        flying = true;
+        veil.classList.add('gone');
+        canvas.focus();
+        if (opts.look === 'lock' && canvas.requestPointerLock) {
+          const p = canvas.requestPointerLock();
+          if (p && p.catch) p.catch(() => (opts.look = 'drag'));
+        }
+      }
+      function stop() {
+        flying = false;
+        held.clear();
+        vel.f = vel.s = vel.u = 0;
+        veil.classList.remove('gone');
+        if (document.pointerLockElement === canvas) document.exitPointerLock();
+        home();
+      }
+
+      veil.addEventListener('click', start);
+      canvas.addEventListener('mousedown', () => {
+        if (!flying) start();
+      });
+
+      let dragging = false;
+      const look = (dx, dy) => {
+        lookAcc.x += dx;
+        lookAcc.y += dy;
+        if (locked) locked = null;
+      };
+      let lastPt = null;
+      canvas.addEventListener('pointerdown', (e) => {
+        if (document.pointerLockElement === canvas) return;
+        dragging = true;
+        lastPt = null;
+        canvas.setPointerCapture(e.pointerId);
+      });
+      canvas.addEventListener('pointerup', (e) => {
+        dragging = false;
+        lastPt = null;
+        canvas.releasePointerCapture(e.pointerId);
+      });
+      /*
+       * movementX is quantised to whole pixels, so a slow drag arrives as 0, 0, 1, 0, 1 and the
+       * bearing steps by a whole pixel's worth at a time, which reads as a detent rather than a
+       * turn. clientX is a double and carries half-pixel steps on a retina panel, and the
+       * coalesced samples recover the moves the browser merged between two frames.
+       */
+      canvas.addEventListener('pointermove', (e) => {
+        const inLock = document.pointerLockElement === canvas;
+        if (!inLock && !dragging) return;
+        if (inLock) {
+          /*
+           * The top level delta only, never the coalesced ones. `movementX` is measured against
+           * the previous dispatched event, and browsers disagree about whether a coalesced sample
+           * carries its own share or the whole aggregate, so summing them multiplies the turn by
+           * however many the browser merged. Absolute positions cannot be double counted, which
+           * is why dragging never showed this and the lock did.
+           */
+          look(e.movementX, e.movementY);
+          return;
+        }
+        const merged = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+        const samples = merged && merged.length ? merged : [e];
+        for (const p of samples) {
+          if (lastPt) look(p.clientX - lastPt.x, p.clientY - lastPt.y);
+          lastPt = { x: p.clientX, y: p.clientY };
+        }
+      });
+      document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== canvas && flying && opts.look === 'lock') stop();
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (!flying) return;
+        if (e.code === 'Escape') return stop();
+        if (e.code === 'KeyT') {
+          locked = locked ? null : nearestAgent();
+          return;
+        }
+        if (e.code === 'KeyF') {
+          grapple();
+          return;
+        }
+        const vantage = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
+        if (vantage >= 0) {
+          glideTo(VANTAGE[vantage](), 900);
+          return;
+        }
+        held.add(e.code);
+        if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space'].includes(e.code))
+          e.preventDefault();
+      });
+      window.addEventListener('keyup', (e) => held.delete(e.code));
+      window.addEventListener('blur', () => held.clear());
+
+      const panel = document.getElementById('panel');
+      const seg = (title, k, choices) => {
+        const h = document.createElement('h3');
+        h.textContent = title;
+        const d = document.createElement('div');
+        d.className = 'seg';
+        for (const [value, label] of choices) {
+          const b = document.createElement('button');
+          b.textContent = label;
+          b.className = opts[k] === value ? 'on' : '';
+          b.onclick = () => {
+            opts[k] = value;
+            [...d.children].forEach((c) => c.classList.remove('on'));
+            b.classList.add('on');
+            if (k === 'width') setWidth(value);
+            if (k === 'brake') refreshAll();
+            if (k === 'look' && flying) {
+              if (value === 'lock' && canvas.requestPointerLock) canvas.requestPointerLock();
+              else if (document.pointerLockElement === canvas) document.exitPointerLock();
+            }
+          };
+          d.appendChild(b);
+        }
+        panel.append(h, d);
+      };
+      const controls = new Map();
+      const set = (k, v) => {
+        opts[k] = v;
+        const c = controls.get(k);
+        if (!c) return;
+        c.input.value = v;
+        c.span.textContent = v + c.unit;
+      };
+      const presetRows = [];
+      const presetRow = (items) => {
+        const d = document.createElement('div');
+        d.className = 'seg';
+        const buttons = [];
+        for (const [label, values] of items) {
+          const b = document.createElement('button');
+          b.textContent = label;
+          b.title = Object.entries(values)
+            .map(([k, v]) => `${k} ${v}`)
+            .join(', ');
+          b.onclick = () => {
+            for (const [k, v] of Object.entries(values)) set(k, v);
+            refreshAll();
+          };
+          buttons.push([b, values]);
+          d.appendChild(b);
+        }
+        presetRows.push(() => {
+          for (const [b, values] of buttons) {
+            const on = Object.entries(values).every(([k, v]) => opts[k] === v);
+            b.classList.toggle('on', on);
+          }
+        });
+        return d;
+      };
+      const refreshAll = () => {
+        refreshGimbal();
+        for (const refresh of presetRows) refresh();
+      };
+      const slider = (label, k, lo, hi, stepSize, unit = '') => {
+        const r = document.createElement('div');
+        r.className = 'row';
+        const l = document.createElement('label');
+        l.textContent = label;
+        const i = document.createElement('input');
+        i.type = 'range';
+        i.min = lo;
+        i.max = hi;
+        i.step = stepSize;
+        i.value = opts[k];
+        const s = document.createElement('span');
+        s.textContent = opts[k] + unit;
+        i.oninput = () => {
+          opts[k] = parseFloat(i.value);
+          s.textContent = opts[k] + unit;
+          refreshAll();
+        };
+        controls.set(k, { input: i, span: s, unit });
+        r.append(l, i, s);
+        panel.appendChild(r);
+      };
+
+      seg('Movement', 'scheme', [
+        ['heli', 'helicopter'],
+        ['noclip', 'noclip'],
+      ]);
+      seg('Look', 'look', [
+        ['drag', 'drag'],
+        ['lock', 'pointer lock'],
+      ]);
+      seg('Gimbal', 'gimbal', [
+        ['free', 'free'],
+        ['locked', 'locked to nose'],
+      ]);
+      seg('Panel width', 'width', [
+        ['narrow', '380'],
+        ['half', '760'],
+        ['full', '1180'],
+      ]);
+      const h3 = document.createElement('h3');
+      h3.textContent = 'Speed';
+      panel.appendChild(h3);
+      panel.appendChild(
+        presetRow([
+          ['was 2.7 × h^0.55', { speedFloor: 3, speedGain: 2.7, speedPower: 0.55 }],
+          ['linear 1.75 × h', { speedFloor: 3, speedGain: 1.75, speedPower: 1 }],
+        ]),
+      );
+      slider('speed floor', 'speedFloor', 0, 12, 0.5);
+      slider('speed gain', 'speedGain', 0.5, 8, 0.1);
+      slider('speed power', 'speedPower', 0.2, 1, 0.05);
+      slider('ceiling', 'vmax', 40, 600, 10);
+      slider('look ahead', 'lookAhead', 0, 10, 0.5);
+      slider('boost', 'boost', 1.5, 8, 0.5, '×');
+      const h8 = document.createElement('h3');
+      h8.textContent = 'Helicopter';
+      panel.appendChild(h8);
+      panel.appendChild(
+        presetRow([
+          [
+            'was',
+            {
+              climb: 2.4,
+              upCeiling: 240,
+              descent: 2.4,
+              downCeiling: 240,
+              dip: 0,
+              diveGain: 0,
+              bank: 0,
+              leanSurge: 0,
+            },
+          ],
+          [
+            'heli',
+            {
+              climb: 0.35,
+              upCeiling: 40,
+              descent: 0.55,
+              downCeiling: 60,
+              dip: 0.25,
+              diveGain: 0.8,
+              bank: 5,
+              leanSurge: 4,
+            },
+          ],
+        ]),
+      );
+      slider('climb / cruise', 'climb', 0.1, 2.5, 0.05, '×');
+      slider('climb ceiling', 'upCeiling', 5, 240, 5);
+      slider('descent / cruise', 'descent', 0.1, 2.5, 0.05, '×');
+      slider('descent ceiling', 'downCeiling', 5, 240, 5);
+      slider('nose-over dip', 'dip', 0, 1, 0.05);
+      slider('dive gain', 'diveGain', 0, 2, 0.1);
+      slider('energy bleed', 'energyBleed', 0.02, 1, 0.02, '/s');
+      slider('dive rush', 'rush', 1, 2, 0.1, '×');
+      const h4 = document.createElement('h3');
+      h4.textContent = 'Feel';
+      panel.appendChild(h4);
+      panel.appendChild(
+        presetRow([
+          ['was 40 / 2.5', { yawRate: 40, leadSeconds: 2.5, deadZone: 1 }],
+          ['A 130 / 1.2', { yawRate: 130, leadSeconds: 1.2, deadZone: 0.25 }],
+          ['B 150 / 0.9', { yawRate: 150, leadSeconds: 0.9, deadZone: 0.25 }],
+          ['C 180 / 0.7', { yawRate: 180, leadSeconds: 0.7, deadZone: 0.25 }],
+        ]),
+      );
+      const gimbalRead = document.createElement('div');
+      gimbalRead.className = 'note';
+      panel.appendChild(gimbalRead);
+      /**
+       * Lead cap is yaw rate times lead, the most turn a sweep can bank; past half a turn the
+       * shortest path flips and the nose runs away, so it is flagged from 165 degrees. The rest is
+       * read off the board's own turn curve released from a full cap.
+       */
+      function refreshGimbal() {
+        const rate = rad(opts.yawRate);
+        const cap = leadCapFor(rate);
+        const dt = 1 / 120;
+        const dead = rad(opts.deadZone);
+        let lead = cap;
+        let t = 0;
+        let carry = 0;
+        let previous = 0;
+        let brake = 0;
+        while (lead > dead && t < 30) {
+          const s = turnFor(lead, rate, dt);
+          if (t <= 1) carry += s;
+          const braking = t > 0 && lead - s > dead && lead - dead <= rad(opts.brakeDeg);
+          if (braking) brake = Math.max(brake, (previous - s) / dt / dt);
+          previous = s;
+          lead -= s;
+          t += dt;
+        }
+        const deg = (r) => ((r * 180) / Math.PI).toFixed(0);
+        gimbalRead.innerHTML =
+          `lead cap <b>${deg(cap)}&deg;</b>${cap >= rad(165) ? ' <i>near half a turn</i>' : ''}` +
+          ` &middot; carry <b>${deg(carry)}&deg;</b> in 1 s` +
+          ` &middot; settles <b>${t >= 30 ? 'never' : t.toFixed(1) + ' s'}</b>` +
+          ` &middot; brake <b>${deg(brake)}&deg;/s&sup2;</b>`;
+      }
+      slider('yaw rate', 'yawRate', 10, 200, 5, '°/s');
+      slider('tilt / yaw', 'tiltRatio', 0.2, 1.5, 0.05, '×');
+      slider('expo', 'expo', 0, 1, 0.05);
+      slider('lead', 'leadSeconds', 0.3, 5, 0.1, 's');
+      slider('dead zone', 'deadZone', 0, 5, 0.25, '°');
+      slider('brake distance', 'brakeDeg', 2, 45, 1, '°');
+      slider('floor', 'floor', 0.02, 0.4, 0.01, '×');
+      seg('Brake', 'brake', [
+        ['sqrt', 'constant deceleration'],
+        ['smooth', 'smoothstep'],
+      ]);
+      slider('thrust', 'punch', 0.5, 10, 0.1, '/s');
+      slider('air drag', 'drag', 0, 4, 0.05, '/s');
+      slider('brake', 'brake', 0.5, 10, 0.1, '/s');
+      slider('ground cushion', 'cushion', 0, 15, 0.5);
+      slider('cruise lean', 'leanRest', 0, 8, 0.1, '°');
+      slider('nose-over', 'leanSurge', 0, 10, 0.5, '°');
+      slider('nose-over attack', 'leanIn', 0.02, 0.3, 0.01, 's');
+      slider('roll into strafe', 'roll', 0, 8, 0.1, '°');
+      slider('bank into turn', 'bank', 0, 12, 0.5, '°');
+      slider('lean under boost', 'leanBoost', 1, 3, 0.1, '×');
+      slider('speed fov kick', 'fovKick', 0, 15, 0.5, '°');
+      const h5 = document.createElement('h3');
+      h5.textContent = 'Striker';
+      panel.appendChild(h5);
+      slider('fire rate', 'fireRate', 1, 16, 0.5, '/s');
+      slider('tracer speed', 'tracerSpeed', 60, 400, 10);
+      slider('range', 'strikerRange', 20, 140, 2);
+      slider('ring amplitude', 'ringAmp', 0, 8, 0.1, '°');
+      slider('ring decay', 'ringDecay', 0.05, 0.8, 0.01, 's');
+      slider('recoil', 'recoil', 0, 14, 0.5, '°');
+      slider('shake', 'shake', 0, 4, 0.1, '°');
+      slider('hit stop', 'hitStop', 0, 140, 5, 'ms');
+      slider('flash', 'flash', 0, 0.9, 0.02);
+      const h6 = document.createElement('h3');
+      h6.textContent = 'Grapple';
+      panel.appendChild(h6);
+      slider('grapple range', 'grappleRange', 15, 120, 5);
+      slider('reel time', 'reelTime', 0.25, 2, 0.05, 's');
+      slider('standoff', 'standoff', 2, 20, 0.5);
+      slider('volume', 'volume', 0, 1, 0.05);
+      slider('look sensitivity', 'sens', 0.25, 4, 0.05, '×');
+      slider('look smoothing', 'smooth', 0, 0.2, 0.005, 's');
+      slider('look up limit', 'lookUp', 0, 70, 1, '°');
+      slider('clearance', 'clearance', 0.1, 3, 0.05);
+      slider('vignette', 'vignette', 0, 1, 0.05);
+      const h7 = document.createElement('h3');
+      h7.textContent = 'Lens';
+      panel.appendChild(h7);
+      panel.appendChild(
+        presetRow([
+          ['30 map', { fov: 30 }],
+          ['45', { fov: 45 }],
+          ['50', { fov: 50 }],
+          ['55', { fov: 55 }],
+        ]),
+      );
+      slider('field of view', 'fov', 20, 90, 1, '°');
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.innerHTML =
+        'The readout is instrumentation for this board, not proposed chrome. <b>Focus ahead</b> is where the ' +
+        "eye's ray meets the ground: it is the number that decides whether drone mode fits inside " +
+        "<code>View</code>'s four numbers, and it runs away as the pitch floor approaches zero.";
+      panel.appendChild(hint);
+
+      refreshAll();
+      setWidth('half');
+      window.addEventListener('resize', resize);
+    </script>
+  </body>
+</html>

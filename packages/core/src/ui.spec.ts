@@ -159,3 +159,49 @@ describe('rosterStateOf', () => {
     expect(rosterStateOf(heard)).toBe('quiet');
   });
 });
+
+describe('drone', () => {
+  const key = (ui: Ui, k: 'C' | 'V' | 'Home' | 'F' | 'Escape'): Ui =>
+    reduce(ui, { kind: 'key', key: k });
+
+  it('is entered and left on its own key', () => {
+    const inside = key({ mode: 'overview' }, 'V');
+    expect(inside.mode).toBe('drone');
+    expect(key(inside, 'V').mode).toBe('overview');
+  });
+
+  it('drops the followed agent on the way in', () => {
+    expect(key({ mode: 'follow', follow: 'a' }, 'V')).toEqual({ mode: 'drone' });
+  });
+
+  it('is not a stop on the cycle', () => {
+    let ui: Ui = { mode: 'overview' };
+    for (let i = 0; i < 6; i++) {
+      ui = key(ui, 'C');
+      expect(ui.mode).not.toBe('drone');
+    }
+  });
+
+  it('ignores the keys that would take the camera somewhere else', () => {
+    const inside: Ui = { mode: 'drone', selected: at('x.ts') };
+    expect(key(inside, 'C')).toBe(inside);
+    expect(key(inside, 'F')).toBe(inside);
+  });
+
+  it('is left by Escape, before Escape means anything else', () => {
+    expect(key({ mode: 'drone', selected: at('x.ts'), scrub: 5 }, 'Escape')).toEqual({
+      mode: 'overview',
+      selected: at('x.ts'),
+      scrub: 5,
+    });
+  });
+
+  it('is left by Home', () => {
+    expect(key({ mode: 'drone' }, 'Home').mode).toBe('overview');
+  });
+
+  it('is not left by touching the camera', () => {
+    const inside: Ui = { mode: 'drone' };
+    expect(reduce(inside, { kind: 'touch-camera' })).toBe(inside);
+  });
+});

@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>strata · bolt board</title>
+    <style id="css"></style>
+  </head>
+  <body>
+    <h1>The bolt · what a round is made of, seen from behind it</h1>
+    <p class="lead">
+      Every card fires the same twin burst away from the eye, which is the only angle you ever see
+      your own rounds from. The towers are a stand-in for scale, not a real layout: 0.8 cells wide
+      and roughly a cell and a half tall, the proportions <code>terrain.ts</code> draws. Each card
+      runs the panel's own bloom pass at the values in <code>theme.ts</code>, strength 0.5, radius
+      0.3, threshold 1.0, so what you see is what the panel would do. The question is the
+      construction, and card A is what is in the tree today. <b>Drag a card to look around it.</b>
+    </p>
+    <div class="panel" id="panel"></div>
+    <div class="board" id="board"></div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import * as L from './data/world-lib.js';
+
+      document.getElementById('css').textContent =
+        L.BOARD_CSS +
+        `
+        .panel { position: sticky; top: 0; z-index: 5; background: #0b0d12; display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 20px 12px; border-bottom: 1px solid #1c2130; }
+        .row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #9aa5bd; }
+        .row span { color: #dfe6f5; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+        .board { grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); }
+        .card h2 .rec { color: #b8e6a8; } .card h2 .cur { color: #f2c14e; }
+      `;
+
+      const W = 430;
+      const H = 320;
+      const BOLT = new THREE.Color().setHSL(318 / 360, 1, 0.62);
+      const HOOK = new THREE.Color(0.62, 0.91, 1);
+
+      const opts = { bloom: 0.5, halo: 2.6, core: 3.2, spin: 6, speed: 26 };
+
+      function haloTexture() {
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const half = size / 2;
+        const ramp = ctx.createRadialGradient(half, half, 0, half, half, half);
+        ramp.addColorStop(0, 'rgba(255,255,255,0.95)');
+        ramp.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+        ramp.addColorStop(0.55, 'rgba(255,255,255,0.14)');
+        ramp.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = ramp;
+        ctx.fillRect(0, 0, size, size);
+        const t = new THREE.CanvasTexture(canvas);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+      const HALO = haloTexture();
+
+      const SHAPES = {
+        octa: () => new THREE.OctahedronGeometry(1, 0),
+        spindle: () => new THREE.SphereGeometry(1, 8, 4),
+        ring: () => new THREE.TorusGeometry(1, 0.3, 4, 12).rotateX(Math.PI / 2),
+      };
+
+      function build(el, spec) {
+        const stage = L.makeStage(W, H, { fog: 0.004, key: 2.2, ambient: 0.45 });
+        el.appendChild(stage.stage);
+        const controls = new OrbitControls(stage.camera, stage.renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 1, -14);
+        stage.camera.position.set(0, 2.4, 4);
+        controls.update();
+
+        const composer = new EffectComposer(stage.renderer);
+        composer.addPass(new RenderPass(stage.sc, stage.camera));
+        const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), opts.bloom, 0.3, 1.0);
+        composer.addPass(bloom);
+        composer.addPass(new OutputPass());
+
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(26, 0.4, 60),
+          new THREE.MeshStandardMaterial({ color: L.hsl(216, 0.14, 0.1), flatShading: true }),
+        );
+        slab.position.set(0, -0.2, -20);
+        stage.sc.add(slab);
+        for (let i = 0; i < 42; i++) {
+          const h = 0.9 + ((i * 37) % 13) * 0.11;
+          const t = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, h, 0.8),
+            new THREE.MeshStandardMaterial({
+              color: L.hsl(212, 0.3, 0.42 + ((i * 7) % 5) * 0.05),
+              flatShading: true,
+            }),
+          );
+          t.position.set(-9 + ((i * 5) % 19), h / 2, -3 - ((i * 11) % 44));
+          stage.sc.add(t);
+        }
+
+        const colour = spec.shape === 'ring' ? HOOK : BOLT;
+        const geometry = SHAPES[spec.shape]();
+        const lit = new THREE.MeshStandardMaterial({
+          color: colour,
+          emissive: colour,
+          emissiveIntensity: 0.7,
+          roughness: 0.35,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.6,
+          depthWrite: false,
+        });
+        const hot = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(1, 1, 1),
+          toneMapped: false,
+        });
+        const solidAura = new THREE.MeshBasicMaterial({
+          color: colour.clone().multiplyScalar(1.7),
+          toneMapped: false,
+          transparent: true,
+          opacity: 0.34,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const glow = new THREE.MeshBasicMaterial({
+          map: HALO,
+          color: colour.clone().multiplyScalar(1.6),
+          toneMapped: false,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          depthTest: true,
+        });
+
+        const quad = new THREE.PlaneGeometry(1, 1);
+        const rounds = [];
+        for (let i = 0; i < 26; i++) {
+          const shell = new THREE.Mesh(geometry, lit);
+          const core = new THREE.Mesh(geometry, hot);
+          const aura = spec.aura === 'solid' ? new THREE.Mesh(geometry, solidAura) : null;
+          const halo = spec.aura === 'halo' ? new THREE.Mesh(quad, glow) : null;
+          for (const m of [aura, halo, shell, core]) {
+            if (!m) continue;
+            m.visible = false;
+            m.frustumCulled = false;
+            stage.sc.add(m);
+          }
+          if (aura) aura.renderOrder = 1;
+          if (halo) halo.renderOrder = 0;
+          shell.renderOrder = 2;
+          core.renderOrder = 3;
+          rounds.push({ shell, core, aura, halo, live: false, z: 0, x: 0, turn: 0 });
+        }
+
+        let next = 0;
+        let wing = 1;
+        const UPV = new THREE.Vector3(0, 1, 0);
+        const AX = new THREE.Vector3(1, 0, 0);
+        const q1 = new THREE.Quaternion();
+        const q2 = new THREE.Quaternion();
+        const dir = new THREE.Vector3(0, 0, -1);
+
+        function fire(now) {
+          const slot = rounds.find((r) => !r.live);
+          if (!slot) return;
+          wing = -wing;
+          slot.live = true;
+          slot.z = 2.2;
+          slot.x = 0.5 * wing;
+          slot.turn = 0;
+          for (const m of [slot.shell, slot.core, slot.aura, slot.halo]) if (m) m.visible = true;
+        }
+
+        function step(dt, now) {
+          if (now > next) {
+            next = now + (spec.shape === 'ring' ? 900 : 130);
+            fire(now);
+          }
+          const ring = spec.shape === 'ring';
+          const w = ring ? 0.55 : 0.35;
+          const len = ring ? 1.1 : 1.1;
+          for (const r of rounds) {
+            if (!r.live) continue;
+            r.z -= opts.speed * dt;
+            r.turn += (ring ? opts.spin * 0.66 : opts.spin) * dt;
+            const converge = Math.max(0, 1 - (2.2 - r.z) / 26);
+            const at = new THREE.Vector3(r.x * converge, 1.15, r.z);
+            q1.setFromUnitVectors(UPV, dir);
+            q2.setFromAxisAngle(ring ? AX : UPV, r.turn);
+            for (const m of [r.shell, r.core, r.aura]) {
+              if (!m) continue;
+              m.position.copy(at);
+              m.quaternion.copy(q1).multiply(q2);
+            }
+            if (ring) {
+              r.shell.scale.setScalar(w);
+              r.core.scale.setScalar(w * 0.74);
+              if (r.aura) r.aura.scale.setScalar(w * 1.4);
+            } else {
+              r.shell.scale.set(w, len, w);
+              r.core.scale.set(w * 0.52, len * 0.52, w * 0.52);
+              if (r.aura) r.aura.scale.set(w * 1.85, len * 1.12, w * 1.85);
+            }
+            r.core.material.color.setScalar(opts.core);
+            if (r.halo) {
+              r.halo.position.copy(at);
+              r.halo.quaternion.copy(stage.camera.quaternion);
+              r.halo.scale.setScalar(w * opts.halo * (ring ? 2.6 : 3.4));
+            }
+            if (r.z < -48) {
+              r.live = false;
+              for (const m of [r.shell, r.core, r.aura, r.halo]) if (m) m.visible = false;
+            }
+          }
+        }
+
+        return {
+          tick(dt, now) {
+            step(dt, now);
+            controls.update();
+            bloom.strength = opts.bloom;
+            composer.render();
+          },
+        };
+      }
+
+      const CARDS = [
+        {
+          title: 'A · octahedron, solid aura',
+          badge: 'in the tree',
+          cls: 'cur',
+          shape: 'octa',
+          aura: 'solid',
+          notes:
+            'What ships today. Down the travel axis an octahedron shows its equator, and its equator is a <b>square</b>. The aura is the same solid scaled up, so it thickens the shape rather than glowing around it.',
+        },
+        {
+          title: 'B · spindle, no glow',
+          badge: 'shape only',
+          cls: '',
+          shape: 'spindle',
+          aura: 'none',
+          notes:
+            'Eight sided cross section, so head on it reads as an octagon rather than a square, and the roll becomes a shimmer across facets. No glow at all, to see what the shape alone is worth.',
+        },
+        {
+          title: 'C · spindle, halo behind',
+          badge: 'recommended',
+          cls: 'rec',
+          shape: 'spindle',
+          aura: 'halo',
+          notes:
+            'The same spindle with a soft additive billboard behind it. The geometry stays hard and the light around it is soft, which is the split the shape kept failing to do on its own.',
+        },
+        {
+          title: 'D · spindle, halo, hotter core',
+          badge: 'more bloom',
+          cls: '',
+          shape: 'spindle',
+          aura: 'halo',
+          notes:
+            'Card C with the core brightness slider carrying the work instead of the halo. Push <b>core</b> up and <b>halo</b> down to see how far the panel bloom alone can take it.',
+        },
+        {
+          title: 'E · ring, solid aura',
+          badge: 'grapple today',
+          cls: 'cur',
+          shape: 'ring',
+          aura: 'solid',
+          notes:
+            'The grapple as it ships. A torus is already round in cross section, so it never had the square problem, but its aura is the same scaled solid.',
+        },
+        {
+          title: 'F · ring, halo behind',
+          badge: 'grapple, matched',
+          cls: 'rec',
+          shape: 'ring',
+          aura: 'halo',
+          notes:
+            'The grapple given the same treatment as card C, so both weapons are lit the same way and only the shape, the colour, the spin axis and the speed tell them apart.',
+        },
+      ];
+
+      const board = document.getElementById('board');
+      const views = CARDS.map((spec) => {
+        const { el, notes } = L.card(board, spec.title, spec.badge, spec.cls, spec.notes);
+        const view = build(el, spec);
+        el.appendChild(notes);
+        return view;
+      });
+
+      const panel = document.getElementById('panel');
+      const slider = (label, key, lo, hi, step) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const l = document.createElement('label');
+        l.textContent = label;
+        const i = document.createElement('input');
+        i.type = 'range';
+        i.min = lo;
+        i.max = hi;
+        i.step = step;
+        i.value = opts[key];
+        const out = document.createElement('span');
+        out.textContent = opts[key];
+        i.oninput = () => {
+          opts[key] = parseFloat(i.value);
+          out.textContent = opts[key];
+        };
+        row.append(l, i, out);
+        panel.appendChild(row);
+      };
+      slider('bloom strength', 'bloom', 0, 2.5, 0.05);
+      slider('halo size', 'halo', 0.5, 6, 0.1);
+      slider('core brightness', 'core', 1, 8, 0.1);
+      slider('spin', 'spin', 0, 16, 0.5);
+      slider('round speed', 'speed', 6, 60, 1);
+
+      let last = performance.now();
+      function frame(now) {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        for (const v of views) v.tick(dt, now);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

@@ -2,7 +2,7 @@ import type { BlockId, HookState } from './events.js';
 import { TRACE_MS } from './memory.js';
 import type { RepoId } from './qualified.js';
 
-export type Mode = 'overview' | 'follow' | 'free';
+export type Mode = 'overview' | 'follow' | 'free' | 'drone';
 
 export type RosterState =
   'connecting' | 'disconnected' | 'deaf' | 'stale' | 'unheard' | 'quiet' | 'cold' | 'live';
@@ -52,7 +52,7 @@ export interface Ui {
 }
 
 export type Intent =
-  | { kind: 'key'; key: 'C' | 'Home' | 'F' | 'Escape' }
+  | { kind: 'key'; key: 'C' | 'V' | 'Home' | 'F' | 'Escape' }
   | { kind: 'hover'; id?: BlockId }
   | { kind: 'click-block'; id?: BlockId }
   | { kind: 'click-beacon'; agentId: string }
@@ -65,21 +65,33 @@ export type Intent =
 
 export const INITIAL_UI: Ui = { mode: 'overview' };
 
-const NEXT_MODE: Record<Mode, Mode> = { overview: 'follow', follow: 'free', free: 'overview' };
+const NEXT_MODE: Record<Mode, Mode> = {
+  overview: 'follow',
+  follow: 'free',
+  free: 'overview',
+  drone: 'overview',
+};
 
 export function reduce(ui: Ui, intent: Intent): Ui {
   switch (intent.kind) {
     case 'key':
       switch (intent.key) {
+        case 'V':
+          return ui.mode === 'drone'
+            ? without({ ...ui, mode: 'overview' }, 'follow')
+            : without({ ...ui, mode: 'drone' }, 'follow');
         case 'C': {
+          if (ui.mode === 'drone') return ui;
           const mode = NEXT_MODE[ui.mode];
           return mode === 'follow' ? { ...ui, mode } : without({ ...ui, mode }, 'follow');
         }
         case 'Home':
           return without({ ...ui, mode: 'overview' }, 'follow');
         case 'F':
+          if (ui.mode === 'drone') return ui;
           return ui.selected === undefined ? ui : without({ ...ui, mode: 'free' }, 'follow');
         case 'Escape':
+          if (ui.mode === 'drone') return without({ ...ui, mode: 'overview' }, 'follow');
           return ui.scrub === undefined ? without(ui, 'selected') : without(ui, 'scrub');
       }
       break;
@@ -100,6 +112,7 @@ export function reduce(ui: Ui, intent: Intent): Ui {
     case 'scrub':
       return intent.at === undefined ? without(ui, 'scrub') : { ...ui, scrub: intent.at };
     case 'touch-camera':
+      if (ui.mode === 'drone') return ui;
       return ui.mode === 'free' ? ui : without({ ...ui, mode: 'free' }, 'follow');
     case 'agent-gone': {
       let next = ui;

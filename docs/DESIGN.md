@@ -31,7 +31,18 @@ Any control or feature that only serves 2 or 3 is weighed against what it costs 
 Not a town. No roofs, windows, trees or people. The moment it looks like a place it is read as
 a place. It is volumes and light, seen from a drone at night.
 
-Not a game, though it borrows a game's feel. The borrowing is three things and stops there:
+That holds at the altitudes the companion is read from, and it stops holding when the eye comes
+down. At six cells over a district the towers are a skyline and the map reads plainly as a city,
+which was found by flying it rather than argued on paper. The abstraction is a property of the
+distance, not of the world, so the rule is kept where it earns its keep and spent where it does
+not: Overview, Follow and Free never go low enough to break it, and Drone is a mode entered on
+purpose, in which the place is allowed to look like one. Two things come with that admission. The
+country hue washes out on lit faces close up, so family is a map-altitude channel and value
+contrast is what carries at street level. And nothing figurative is added even there: no vehicle
+is drawn, no roofs arrive, and the reader is a viewpoint with mass rather than an object in the
+world.
+
+Not a game, though it borrows a game's feel. The borrowing is four things and stops there:
 
 - Presentation: the spectator vocabulary. A fixed frame, a HUD roster, ping rings, a mode key,
   a selection reticle, minimap-grade legibility.
@@ -41,15 +52,30 @@ Not a game, though it borrows a game's feel. The borrowing is three things and s
   after a fortnight a glance at the lower left says "Web2 is awake" without a word being read. This is the one
   property that compounds with use, and every rule below that looks conservative is protecting
   it.
+- A trigger, in Drone and nowhere else. Something to press, that answers. It is the newest of
+  the four and the only one added for pleasure rather than for the read.
+
+The fourth is the one that needs a fence, so here it is. The weapons change nothing: no block is
+moved, marked, coloured or destroyed, no state outlives the effect, and nothing they do reaches
+the event stream, the roster or the timeline. There is no ammunition, no reload, no cooldown
+beyond the weapon's own cycle, no damage, no accuracy penalty, no target worth hitting more than
+another. What a hit buys is a reaction and the reaction is the whole of the reward, which is the
+line between a trigger and a game system.
 
 No game systems. No score, streak, level, progress bar or achievement, ever. A number on the
 panel becomes a thing to optimise, and nothing the companion is for asks for one.
 
-Silent. The panel makes no sound at all, and none is planned for now. A single cue was
-considered for the moment the user is meant to come back for, since that is the one event
-peripheral vision cannot deliver once the eye has left the panel, but it is deferred rather than
-built: `waiting` and `blocked` are both that moment now, and picking between them is a decision
-worth making with the sound in hand rather than on paper.
+Silent, where silence is a promise about interruption. The panel never makes a sound the reader
+did not ask for. A cue for the moment the user is meant to come back for was considered, since
+that is the one event peripheral vision cannot deliver once the eye has left the panel, and it is
+deferred rather than built: `waiting` and `blocked` are both that moment now, and picking between
+them is worth doing with the sound in hand rather than on paper.
+
+Drone is the exception and it is a narrow one. A trigger the reader pulled, in a mode the reader
+entered, answers with a sound, because the objection to sound was always that it arrives
+uninvited and this cannot. The panel at rest is as silent as it ever was. The sounds are the
+weapon's own: the shot, the hit, and the cable letting go. Nothing about terrain or weather ever
+makes one.
 
 ## The vocabulary
 
@@ -354,13 +380,99 @@ camera's problem, not the layout's.
 ## Camera
 
 Three modes, the spectator trio every game converges on. `C` cycles them; the HUD names the
-current one.
+current one. A fourth, Drone, is deliberately not on that key.
 
 | mode     | camera                                                     | serves                    |
 | -------- | ---------------------------------------------------------- | ------------------------- |
 | Overview | frames the live set; the resting state                     | companion, corner of eye  |
 | Follow   | travels with one agent, descended to its continent         | companion, wanting detail |
 | Free     | orbit, zoom, pan; entered the moment the camera is touched | map                       |
+| Drone    | flown, entered by `V` alone and never by the cycle         | the toy                   |
+
+Drone is the one mode nothing serves but pleasure, and it is the reason the panel is a toy
+rather than only an instrument. It is flown as a helicopter: the stick moves the machine on the
+horizontal plane and altitude is its own axis, so looking down at a worksite while holding
+station is possible, which is the verb the whole product is about and the one a look-directed
+control loses. Speed is proportional to height above the ground, so the ground crosses the frame
+at the same rate at six cells and at two hundred: low and slow to fast and map-like, and one
+control covers a world hundreds of cells across and a single district. Drone also opens the lens,
+from the map's 30 degrees to 50, eased in over the entry and back out on leaving, because a
+telephoto compresses the parallax that speed is read from and the same speed through it reads as
+slower. Nothing else is added for speed: no blur and no streaks, only a wider lens, a nose that
+dips harder under boost, and the vignette.
+
+It flies like a helicopter in four small ways, all arcade. The nose goes over into a push, about
+six degrees at the onset settling to two and a half at cruise, and the nose-over costs a little
+height, five or six percent of it, which is what tilting a rotor disc does. It does not keep
+sinking, because here height is the throttle and a machine that sank while it flew would be
+bleeding its own speed. Up and down are slower than across, a third of cruise to climb and half
+to dive, floored and capped, the way a real airframe climbs at a fraction of what it cruises at.
+A dive with the nose over banks speed past what the altitude allows and bleeds it away over a few
+seconds, so height can be traded for a fast run down a street; a straight drop banks nothing. And
+the body banks into a turn in proportion to how fast it is turning and moving, up to five degrees,
+which with a gimbal locked to the nose is the one cue that says aircraft rather than tripod.
+
+The gimbal tilts from straight down to 35 degrees above the horizon, which is the travel a real
+one has. The nose has to rise because the mode lives at street level, where a tower's cap is
+above the eye and refusing the axis refuses the shot. It costs the tidy claim that every mode
+writes the same four numbers, since a camera looking at the sky has no point on the ground to
+name, and that was a claim about bookkeeping rather than about what the panel is for.
+
+The gimbal is locked to the nose: the view turns only as fast as the machine turns. Both axes
+are rate limited and the tilt runs at half the yaw, because a tilt left free while the yaw is
+capped does not read as a machine at all, only as a broken one. The rate is the airframe's, not a
+gimbal operator's: the panel flies 130 degrees a second of yaw and 65 of tilt at full deflection,
+which sits under a camera drone's own yaw rate (an Inspire 3 yaws at 150, a Mavic 3 at 200)
+rather than under the 35 that cinematic gimbal pans are kept to. The pan figure was flown first
+and was wrong for this machine: with the gimbal bolted on, pan guidance governs nothing, the view
+turns at whatever the airframe does, and at 40 a full sweep of the mouse left and right barely
+moved the picture. How far the hand may lead the nose is 1.2 seconds of turn, so a full sweep
+carries about 70 degrees in the first second after release and is worked through in about five.
+A helicopter's own standard rate turn, 3 degrees a second, is an instrument-flying number and is
+useless here.
+
+How fast it turns is a curve rather than a number, and the curve is the arcade part. The gap
+between where the hand has pointed and where the nose has got to is a stick deflection, and the
+turn rate is a shaped function of it: soft through the middle so a tower can be framed, opening
+out to the full rate at the ends so the map can be crossed. That is a drone's own rate model,
+where a centre gain, an expo and a maximum are the three things a pilot sets, and it is worth
+more here than realism because the rate is a pure function of the deflection. Nothing is carried
+between frames, so the camera cannot overshoot, cannot ring and cannot run away. It is stable by
+construction rather than by tuning. The tail ends on a brake rather than a fade: under a floor the
+rate falls with the square root of what is left to turn, which is what a mass under a constant
+brake does, so the nose arrives in a finite time instead of crawling into the dead zone.
+A free gimbal was built and rejected. It pointed
+instantly and let the airframe swing after it, which is what a camera drone really does, but it
+lets the view and the travel disagree, and a mode whose whole purpose is to be enjoyed is worth
+more as one honest machine than as an instant pointer bolted to a slow one. The cost is real
+and accepted: aiming at a named tower takes over a second, so Drone is not how anything is
+found. `F` and the roster are.
+
+Drone carries two weapons, which are the only things in Strata the reader points at something.
+The **striker** is full auto on `Space`: hitscan, a tracer drawn travelling because the shot must
+be honest about where it landed and the tracer only about the journey, and on contact the tower
+**rings**. It leans away from the shot about its foot, one or two oscillations, and settles;
+its cap flashes white; a shock ring runs out across the platform and sparks come off the
+impact. The **grapple** is a single shot on `F`: it bites a tower, a cable holds, and the drone
+is reeled to a standoff in front of it. It is the way to cross the map at a locked gimbal's
+aiming speed, and it is a weapon rather than a jump because being pulled somewhere reads better
+than arriving there.
+
+A hit is pitched by the height of the tower it lands on, so a large file answers lower than a
+small one and a district has a chord. That is the one place in Strata where a magnitude is heard
+rather than seen, and it costs the read nothing because nobody is reading while firing.
+
+The strike vocabulary is deliberately close to an agent's edit, which already flashes a cap and
+crosses it with a shock wave, so a struck tower reads as a worked one rather than as an
+arbitrary effect. The two are told apart in time, the axis the design already uses to separate a
+read from an edit: an agent's edit is a sustained worksite that flickers and throws aftershocks,
+a hit is a single percussive event. The reader's own colour is a fixed instrument cyan and never
+an agent hue. This is a real cost paid against the law that motion means "happening now", and
+Drone is where it is paid.
+
+Nothing about Drone reaches the resting picture. It is never the default, never survives a
+reload, and leaving it returns the bearing to the canonical yaw, because the learnable sky is
+the one property that compounds and a map left yawed has spent it.
 
 Follow with no agent picked follows whichever agent acted last, which covers several agents
 without a fourth mode. Clicking an agent beacon enters Follow on that agent, and Follow means
@@ -514,6 +626,14 @@ it. It never reaches the horizontal, so the camera cannot pass under the world.
 Keys: `C` cycles camera modes, `Home` returns to Overview, `F` frames the selection, `Esc`
 clears the selection and the scrub, and holding `Space` turns a drag into a pan. When Free has
 sat untouched for a while the HUD stops naming the mode and names the way back instead.
+
+`V` enters Drone, and it is not on the `C` cycle: a fourth stop taxes every glance, and a mode
+this different is one a reader must never fall into sideways. The letter is not `D`, because `D` is the hand's strafe and a
+key cannot both fly the machine and put it away. In it, `WASD` moves and `E` and
+`Q` take the altitude, `Shift` boosts and `Ctrl` is the precision hand, `T` locks the look onto
+the nearest agent, and `Esc` or `Home` leaves. Drone names the way back from the moment it is
+entered rather than after a delay, unlike Free. The block at the centre of the frame is labelled
+in place of the hover label, which is a reticle without one being drawn.
 
 Labels appear on hover or selection only. The selected block gets one caption card: path,
 size, the last three touches (agent and how long ago). In the browser the path is a

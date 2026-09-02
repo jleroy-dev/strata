@@ -1,4 +1,5 @@
 import type { BlockId, Intent } from '@strata/core';
+import { Keys } from './keys.js';
 
 /**
  * Wheel deltas arrive in pixels, lines or pages depending on the device, and a trackpad pinch
@@ -34,6 +35,8 @@ function speedOf(trail: readonly [number, number, number][]): [number, number] {
   return [(dx / elapsed) * 1000, (dy / elapsed) * 1000];
 }
 
+const DRONE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space']);
+
 export interface Pointer {
   x: number;
   y: number;
@@ -51,11 +54,21 @@ export function bindInput(
     wheel: (notches: number, ndc: { x: number; y: number }) => void;
   },
   onPan?: (panning: boolean) => void,
+  droning?: () => boolean,
 ): {
   pointer: () => Pointer | undefined;
   settle: () => void;
   setHover: (over: boolean) => void;
+  held: () => ReadonlySet<string>;
+  forget: () => void;
+  takeLook: () => { x: number; y: number };
 } {
+  const keys = new Keys();
+  const forget = (): void => {
+    keys.clear();
+  };
+  const look = { x: 0, y: 0 };
+  const flying = (): boolean => droning?.() === true;
   let pointer: Pointer | undefined;
   let down: [number, number] | undefined;
   let dragging = false;
@@ -82,7 +95,7 @@ export function bindInput(
     pointer = { x: e.offsetX, y: e.offsetY, moved: true };
     if (down && !dragging && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) {
       dragging = true;
-      dispatch({ kind: 'touch-camera' });
+      if (!flying()) dispatch({ kind: 'touch-camera' });
       cursor();
     }
     if (!dragging || !last) return;
@@ -95,6 +108,11 @@ export function bindInput(
     }
     last = [e.clientX, e.clientY, e.timeStamp];
     carried = panKey || button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey;
+    if (flying()) {
+      look.x += dx;
+      look.y += dy;
+      return;
+    }
     gestures.drag(dx, dy, carried);
   });
   dom.addEventListener(
@@ -150,7 +168,7 @@ export function bindInput(
     const start = down;
     const wasDragging = dragging;
     release(e.timeStamp);
-    if (!start || wasDragging || e.button !== 0) return;
+    if (!start || wasDragging || e.button !== 0 || flying()) return;
     const hit = pick(e.offsetX, e.offsetY);
     if (hit.agent !== undefined) dispatch({ kind: 'click-beacon', agentId: hit.agent });
     else
@@ -167,30 +185,47 @@ export function bindInput(
   window.addEventListener('blur', () => {
     setPan(false);
   });
+  window.addEventListener('blur', forget);
+  window.addEventListener('focus', forget);
+  document.addEventListener('visibilitychange', forget);
+  document.addEventListener('pointerlockchange', forget);
   window.addEventListener('keyup', (e) => {
+    keys.release(e.code);
     if (e.code === 'Space') setPan(false);
   });
   window.addEventListener('keydown', (e) => {
+    keys.press(e.code);
     if (e.code === 'Space') {
       e.preventDefault();
-      setPan(true);
+      if (!flying()) setPan(true);
       return;
     }
+    if (flying() && DRONE_KEYS.has(e.code)) e.preventDefault();
     const key =
       e.key === 'c' || e.key === 'C'
         ? 'C'
-        : e.key === 'f' || e.key === 'F'
-          ? 'F'
-          : e.key === 'Home'
-            ? 'Home'
-            : e.key === 'Escape'
-              ? 'Escape'
-              : undefined;
+        : e.key === 'v' || e.key === 'V'
+          ? 'V'
+          : e.key === 'f' || e.key === 'F'
+            ? 'F'
+            : e.key === 'Home'
+              ? 'Home'
+              : e.key === 'Escape'
+                ? 'Escape'
+                : undefined;
     if (key === undefined) return;
     dispatch({ kind: 'key', key });
   });
 
   return {
+    held: () => keys.held,
+    forget,
+    takeLook: () => {
+      const taken = { x: look.x, y: look.y };
+      look.x = 0;
+      look.y = 0;
+      return taken;
+    },
     pointer: () => pointer,
     settle: () => {
       if (pointer) pointer.moved = false;

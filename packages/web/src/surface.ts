@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  unbendAt,
   WORLD_RADIUS,
   bendAt,
   bendNormal,
@@ -151,6 +152,13 @@ export class Surface {
 
   toLocal(world: THREE.Vector3): THREE.Vector3 {
     return this.group.worldToLocal(world.clone());
+  }
+
+  /** The world cell and height a point in the scene stands over. */
+  cellAt(world: THREE.Vector3): { x: number; z: number; alt: number } {
+    const local = this.toLocal(world);
+    const back = unbendAt({ x: local.x, y: local.y, z: local.z });
+    return { x: back.u + this.cx, z: back.v + this.cz, alt: back.y };
   }
 
   eyeLocal(camera: THREE.Camera): THREE.Vector3 {
