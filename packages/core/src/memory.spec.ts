@@ -13,12 +13,18 @@ describe('memory', () => {
   touches = foldTouch(touches, { kind: 'agent.running', repo: REPO, agentId: 'a' }, t0 + 1);
   touches = foldTouch(
     touches,
+    { kind: 'agent.running', repo: REPO, agentId: 'a', id: at('y.ts') },
+    t0 + 2,
+  );
+  touches = foldTouch(
+    touches,
     { kind: 'agent.reading', repo: REPO, agentId: 'b', id: at('x.ts') },
     t0 + 1000,
   );
 
-  it('records only reads and edits with a block', () => {
+  it('records reads, edits and commands that name a block, and nothing without one', () => {
     expect(touches.get(at('x.ts'))).toHaveLength(2);
+    expect(touches.get(at('y.ts'))).toEqual([{ agentId: 'a', at: t0 + 2, verb: 'running' }]);
   });
 
   it('decays heat over 20 s and trace over an hour', () => {

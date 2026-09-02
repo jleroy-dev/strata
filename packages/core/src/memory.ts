@@ -7,7 +7,7 @@ export const CONTEST_MS = 5 * 60_000;
 export interface Touch {
   agentId: string;
   at: number;
-  verb: 'reading' | 'editing';
+  verb: 'reading' | 'editing' | 'running';
 }
 
 export type Touches = ReadonlyMap<BlockId, readonly Touch[]>;
@@ -19,15 +19,22 @@ export interface Memory {
   contested?: [string, string];
 }
 
-/** Records a read or an edit on its block and forgets touches older than the trace. */
+/** Records a read, an edit or a command on its block and forgets touches older than the trace. */
 export function foldTouch(touches: Touches, event: WeatherEvent, at: number): Touches {
   if (
-    (event.kind !== 'agent.reading' && event.kind !== 'agent.editing') ||
+    (event.kind !== 'agent.reading' &&
+      event.kind !== 'agent.editing' &&
+      event.kind !== 'agent.running') ||
     event.id === undefined
   ) {
     return touches;
   }
-  const verb = event.kind === 'agent.reading' ? 'reading' : 'editing';
+  const verb =
+    event.kind === 'agent.reading'
+      ? 'reading'
+      : event.kind === 'agent.editing'
+        ? 'editing'
+        : 'running';
   const next = new Map(touches);
   const kept = (touches.get(event.id) ?? []).filter((t) => at - t.at < TRACE_MS);
   next.set(event.id, [...kept, { agentId: event.agentId, at, verb }]);

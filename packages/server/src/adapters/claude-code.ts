@@ -1,5 +1,7 @@
+import { statSync } from 'node:fs';
 import type { AgentSignal, BlockId } from '@strata/core';
 import type { Mounts } from '../mounts.js';
+import { shellPaths } from './shell-paths.js';
 
 const READ_TOOLS = new Set(['Read']);
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -23,8 +25,21 @@ interface HookPayload {
   tool_input?: unknown;
 }
 
+const fileAt = (absolute: string): boolean => {
+  try {
+    return statSync(absolute).isFile();
+  } catch {
+    return false;
+  }
+};
+
 /** Turns one Claude Code hook payload into a signal, or says why it carries none. */
-export function fromClaudeCode(body: unknown, mounts: Mounts, at: number): Read {
+export function fromClaudeCode(
+  body: unknown,
+  mounts: Mounts,
+  at: number,
+  isFile: (absolute: string) => boolean = fileAt,
+): Read {
   if (typeof body !== 'object' || body === null) return { dropped: 'malformed' };
   const p = body as HookPayload;
   if (typeof p.session_id !== 'string' || typeof p.cwd !== 'string') {
@@ -59,7 +74,9 @@ export function fromClaudeCode(body: unknown, mounts: Mounts, at: number): Read 
           : SHELL_TOOLS.has(name)
             ? 'shell'
             : 'other';
-      const path = blockOf(p.tool_input, mounts, mount);
+      const path =
+        blockOf(p.tool_input, mounts, mount) ??
+        (tool === 'shell' ? shellBlock(p.tool_input, p.cwd, mounts, mount, isFile) : undefined);
       return {
         signal: { session, repo, at, kind: 'tool', tool, ...(path !== undefined && { path }) },
       };
@@ -67,6 +84,23 @@ export function fromClaudeCode(body: unknown, mounts: Mounts, at: number): Read 
     default:
       return { dropped: 'unknown-event' };
   }
+}
+
+function shellBlock(
+  input: unknown,
+  cwd: string,
+  mounts: Mounts,
+  mount: Parameters<Mounts['blockAt']>[0],
+  isFile: (absolute: string) => boolean,
+): BlockId | undefined {
+  if (typeof input !== 'object' || input === null) return undefined;
+  const command = (input as { command?: unknown }).command;
+  if (typeof command !== 'string') return undefined;
+  for (const absolute of shellPaths(command, cwd, isFile)) {
+    const id = mounts.blockAt(mount, absolute);
+    if (id !== undefined) return id;
+  }
+  return undefined;
 }
 
 function blockOf(

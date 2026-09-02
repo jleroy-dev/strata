@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -111,6 +111,30 @@ describe('fromClaudeCode', () => {
         at,
       ),
     ).toEqual({ session: 's1', repo: mount.id, at, kind: 'tool', tool: 'read' });
+  });
+
+  it('stands a shell command on the first file it names inside the repo', () => {
+    mkdirSync(join(mount.root, 'src'), { recursive: true });
+    writeFileSync(join(mount.root, 'src/a.ts'), 'export {};\n');
+    const shell = (command: string): AgentSignal | undefined =>
+      signalOf(
+        { ...base, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } },
+        mounts,
+        at,
+      );
+    expect(shell('sed -n 1,5p src/a.ts')).toMatchObject({ tool: 'shell', path: block('src/a.ts') });
+    expect(shell(`cat ${join(mount.root, 'src/a.ts')}`)).toMatchObject({
+      path: block('src/a.ts'),
+    });
+    expect(shell('npm run gate')).toEqual({
+      session: 's1',
+      repo: mount.id,
+      at,
+      kind: 'tool',
+      tool: 'shell',
+    });
+    expect(shell('ls src')).not.toHaveProperty('path');
+    expect(shell('cat /elsewhere/a.ts')).not.toHaveProperty('path');
   });
 
   it('reports a tool it cannot name as work without a place', () => {

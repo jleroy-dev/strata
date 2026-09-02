@@ -78,6 +78,7 @@ export function foldWeather(sessions: Sessions, event: WeatherEvent, at: number)
     if (event.id === undefined) delete session.block;
     else session.block = event.id;
   }
+  if (event.kind === 'agent.running' && event.id !== undefined) session.block = event.id;
   next.set(event.agentId, session);
   return next;
 }
@@ -169,6 +170,7 @@ export function eventOf(
         case 'edit':
           return { kind: 'agent.editing', agentId, repo, ...(id !== undefined && { id }) };
         case 'shell':
+          return { kind: 'agent.running', agentId, repo, ...(id !== undefined && { id }) };
         case 'other':
           return { kind: 'agent.running', agentId, repo };
         default:

@@ -72,7 +72,7 @@ export type WeatherEvent = { agentId: string; repo: RepoId } & (
   | { kind: 'agent.arrived' }
   | { kind: 'agent.reading'; id?: BlockId }
   | { kind: 'agent.editing'; id?: BlockId }
-  | { kind: 'agent.running' }
+  | { kind: 'agent.running'; id?: BlockId }
   | { kind: 'agent.thinking' }
   | { kind: 'agent.blocked' }
   | { kind: 'agent.waiting' }

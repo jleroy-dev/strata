@@ -187,6 +187,12 @@ next)` in core turns the difference into `block.*` changes: a departure and an a
   `running`, `thinking`, `blocked`, `waiting`, `left`). `PreToolUse` carries no matcher, so the
   vendor's tool list never enters strata's configuration: the adapter names the read, edit and
   shell families and everything else is `other`, which reads as `running`, work with no place.
+  A shell command is work with a place when it names one: the adapter reads the command's
+  tokens, resolves each against the session's cwd, and stands the agent on the first that is a
+  file inside the repo, so a test run or a `sed` over a file moves the beacon the way a `Read`
+  does. It is a metadata check, a `stat` and never a read, and precision is chosen over recall:
+  quoted, redirected and line-suffixed tokens count, flags, globs, assignments and expansions do
+  not, and a bare word with neither a dot nor a slash is never looked up.
   A tool nobody has taught strata about is an agent doing something, not an agent absent, and an
   enumeration on someone else's disk goes stale every time the vendor ships a tool.
   `PostToolUse` is narrowed to `Bash`
@@ -286,6 +292,7 @@ column is the part worth reading: what did the overturning matters more than wha
 | The yaw rate is a cinematic gimbal pan, 40 degrees a second                                  | It is the airframe's, 130, with the lead cut from 2.5 seconds to 1.2 | Flying it. Pan guidance governs a gimbal free to be panned slowly; bolted to the nose the view turns at whatever the airframe does, and at 40 a full sweep of the mouse left and right barely moved the picture. Settle time turned out to be set by the lead alone and the carry by the product of the two, and that product has to stay well under half a turn or the shortest path flips, so it is pinned by a spec now. Picked on the board from three presets against the old pair. |
 | Drone looks through the map's 30 degree lens, and speed grows with the square root of height | The lens opens to 50 on entry, and speed is proportional to height   | Feel. Through the telephoto the same speed read as slower, and a speed law that grew slower than height made the ground cross the frame ever more slowly the higher the eye went, so the mode felt slowest where it crossed the most ground. Proportional speed holds the optic flow constant, which is the convention every fly cam converged on.                                                                                                                                       |
 | Climbing and diving are 2.4 times faster than cruising                                       | A third of cruise to climb, half to dive, and a dive banks speed     | Physics, then the model. A helicopter climbs at a fraction of its cruise speed, and the lift multiplier had it doing 240 cells a second straight up at altitude. The first sketch of a helicopter feel also sank the drone under sustained forward thrust, which in a world where height is the throttle spirals to the floor in four seconds, so the sink became a bounded nose-over dip and the trade of height for speed became an energy allowance that bleeds.                      |
+| A shell tool is work with no place                                                           | A shell command that names a file inside the repo stands on it       | Watching a session that worked through the shell. Its beacon never moved, because the hook payload for `Bash` carries only the command string and the adapter read a place from `file_path` alone, so an agent running tests over a file was drawn as an agent with nowhere to be. The command's own tokens name the place, checked by `stat` and filtered for precision.                                                                                                                |
 
 Six kinds of thing did the overturning, and they are the ones worth watching for:
 

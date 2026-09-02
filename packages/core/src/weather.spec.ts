@@ -164,6 +164,25 @@ describe('foldWeather and verbOf', () => {
     expect(verbOf(b, t0 + 10 + IDLE_MS)).toBe('waiting');
   });
 
+  it('stands a command on the block it names and stays put for one that names none', () => {
+    expect(
+      eventOf(
+        { repo: REPO, session: 's1', at: 0, kind: 'tool', tool: 'shell', path: at('src/a.ts') },
+        known,
+      ),
+    ).toEqual({ kind: 'agent.running', repo: REPO, agentId: 's1', id: at('src/a.ts') });
+    let s: Sessions = new Map();
+    s = foldWeather(s, { kind: 'agent.editing', repo: REPO, agentId: 'r', id: at('src/a.ts') }, t0);
+    s = foldWeather(
+      s,
+      { kind: 'agent.running', repo: REPO, agentId: 'r', id: at('src/b.ts') },
+      t0 + 10,
+    );
+    expect(s.get('r')).toMatchObject({ verb: 'running', block: at('src/b.ts') });
+    s = foldWeather(s, { kind: 'agent.running', repo: REPO, agentId: 'r' }, t0 + 20);
+    expect(s.get('r')).toMatchObject({ verb: 'running', block: at('src/b.ts') });
+  });
+
   it('ends running on a tool-end and keeps the block it was last on', () => {
     let s: Sessions = new Map();
     s = foldWeather(s, { kind: 'agent.editing', repo: REPO, agentId: 'r', id: at('src/a.ts') }, t0);
